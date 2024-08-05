@@ -1,0 +1,26 @@
+{
+    "__common" : "host",
+    "net_base" : "172.168.9.0/24",
+    "nodes" : [
+        {
+            "__common" : "internet",
+            "name" : "internet",
+            "net_base" : "172.168.11.0/24",
+            "nodes" : [
+                {
+                    "__common" : "router",
+                    "name" : "router1"
+                },
+                {
+                    "__common" : "router",
+                    "name" : "router1"
+                },
+                {
+                    "__common" : "router",
+                    "name" : "router1"
+                }
+            ]
+        }
+    ]
+
+}
