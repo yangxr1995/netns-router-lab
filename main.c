@@ -7,61 +7,14 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-
 #include "json.h"
-
-#define _fmalloc       malloc
-#define _ffree         free
-#define _fclose_fp(fp) do {if (fp) fclose(fp); fp = NULL; } while(0)
-#define _free_ptr(ptr) do {if (ptr) _ffree(ptr); ptr = NULL; } while(0)
-
-typedef struct cfg_ctx_s cfg_ctx_t;
-struct cfg_ctx_s {
-    char *type;
-    char *lanip;
-};
-
-
-int read_file_to_data(const char *src, char **data, size_t *size)
-{
-    FILE *rfp = NULL;
-    size_t total = 0;
-
-    if (!src || !data)
-        return -1;
-
-    if (!size)
-        size = &total;
-    *data = NULL, *size = 0;
-
-    if ((rfp = fopen(src, "r")) == NULL)
-        return -1;
-    fseek(rfp, 0, SEEK_END);
-    *size = ftell(rfp);
-    fseek(rfp, 0, SEEK_SET);
-    if (*size == 0)
-        goto err;
-
-    if ((*data = _fmalloc(*size + 1)) == NULL)
-        goto err;
-    if (*size != fread(*data, 1, *size, rfp))
-        goto err;
-
-    (*data)[*size] = 0;
-    _fclose_fp(rfp);
-    return 0;
-err:
-    _fclose_fp(rfp);
-    _free_ptr(*data);
-    *size = 0;
-    return -1;
-}
 
 #define type_member                     jkey.type
 #define key_member                      jkey.str
 #define str_member                      vstr.str
 
-char *json_get_string(json_object *jroot, char *key)
+inline static char *
+json_get_string(json_object *jroot, char *key)
 {
     json_object *jobj;
 
@@ -75,7 +28,17 @@ char *json_get_string(json_object *jroot, char *key)
     return NULL;
 }
 
-inline static void do_system(char *fmt, ...)
+inline static struct in_addr
+alloc_ip(struct in_addr net_begin, char net_offset, char ip_offset)
+{
+    net_begin.s_addr += (net_offset << 16);
+    net_begin.s_addr += (ip_offset << 24);
+
+    return net_begin;
+}
+
+inline static void 
+do_system(char *fmt, ...)
 {
     char cmd[256];
     va_list ap;
@@ -83,130 +46,148 @@ inline static void do_system(char *fmt, ...)
     vsnprintf(cmd, sizeof(cmd), fmt, ap);
     va_end(ap);
 
-    printf("%s\n", cmd);
+    /*printf("%s\n", cmd);*/
     system(cmd);
 }
 
-struct in_addr
-next_net(struct in_addr net, int mask)
+inline static void 
+do_system_netns(char *name, char *fmt, ...)
 {
-    switch (mask) {
-        case 24:
-            net.s_addr += (1 << 16);
-            return net;
-        case 32:
-            net.s_addr += (1 << 24);
-            return net;
-        case 16:
-            net.s_addr += (1 << 8);
-            return net;
-        case 8:
-            net.s_addr += (1 << 1);
-            return net;
-        default:
-            assert(0 && "unsupport mask");
-    }
+    char tmp[256];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(tmp, sizeof(tmp), fmt, ap);
+    va_end(ap);
+
+    char cmd[512] = {0};
+    if (name)
+        sprintf(cmd, "ip netns exec rlab-%s ", name);
+    strcat(cmd, tmp);
+
+    /*printf("%s\n", cmd);*/
+    system(cmd);
 }
 
-int node_create(json_object *jroot)
+inline static char
+json_get_bool(json_object *jroot, char *key)
 {
-    struct in_addr addr;
+    json_object *jobj;
 
+    if ((jobj = json_get_object_item(jroot, key, NULL)) == NULL)
+        return 0;
+
+    return json_get_bool_value(jobj);
+}
+
+void
+netns_init(char *parent_name, char *name, struct in_addr gw)
+{
+    char nsname[64], ifname[64], parent_nsname[64];
+
+    sprintf(nsname, "rlab-%s", name);
+    sprintf(ifname, "rlab-%s", name);
+
+    do_system("ip netns add %s", nsname);
+    do_system("ip link add %s type veth peer name %s-", nsname, ifname);
+    do_system("ip link set %s netns %s", ifname, nsname);
+    do_system("ip netns exec %s ip link set dev lo up", nsname);
+    do_system("ip netns exec %s ip link set dev %s up",
+            nsname, ifname);
+    do_system("ip netns exec %s ip route add default via %s dev %s onlink",
+            nsname, inet_ntoa(gw), ifname);
+    do_system("ip netns exec %s iptables -t nat -I POSTROUTING -o %s -j MASQUERADE",
+            nsname, ifname);
+
+    if (parent_name) {
+        sprintf(parent_nsname, "rlab-%s", parent_name);
+        do_system("ip link set %s- netns %s", ifname, parent_nsname);
+    }
+
+    do_system_netns(parent_name, "ip link set dev %s- up", ifname);
+}
+
+inline static void
+ip_addr_alloc(char *name, struct in_addr net, char *dev, int net_offset, int ip_offset)
+{
+    do_system_netns(name, "ip addr add %s/%d dev %s", 
+            inet_ntoa(alloc_ip(net, net_offset, ip_offset)), 24, dev);
+    do_system_netns(name, "ip link set dev %s up", dev);
+}
+
+int 
+_node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
+{
+    int net_offset = *pnet_offset;
     char *name;
-    char *net_base;
     json_object *jnodes, *jobj;
+    char br_on = 0;
 
     name = json_get_string(jroot, "name");
-    if ((net_base = json_get_string(jroot, "net_base")) == NULL) {
-        printf("end : net is null\n");
-        return -1;
-    }
+    br_on = json_get_bool(jroot, "br");
 
-    int mask;
-    char *p;
-
-    if ((p = strchr(net_base, '/')) == NULL) {
-        printf("cfg error : net_base : [%s]", net_base);
-        return -1;
-    }
-
-    *p++ = 0;
-    mask = atoi(p);
-
-    struct in_addr net_begin;
-
-    net_begin.s_addr = inet_addr(net_base);
-
-    jnodes = json_get_object_item(jroot, "nodes", NULL);
-    if (jnodes == NULL)
+    if ((jnodes = json_get_object_item(jroot, "nodes", NULL)) == NULL)
         return 0;
 
     int arr_sz, i;
     arr_sz = json_get_array_size(jnodes);
 
     char *node_name;
+    char ifname_child[64], ifname_parent[64];
+    int ip_offset = 0;
 
-    struct in_addr cur_net = net_begin;
+    if (br_on) {
+        do_system_netns(name, "brctl addbr br0");
+        ip_addr_alloc(name, net_begin, "br0", net_offset, ++ip_offset);
+    }
 
     for (i = 0; i < arr_sz; ++i) {
 
-        jobj = json_get_array_item(jnodes, i, NULL);
-        if (jobj == NULL)
+        if ((jobj = json_get_array_item(jnodes, i, NULL)) == NULL)
             break;
 
         if ((node_name = json_get_string(jobj, "name")) == NULL) {
             printf("cfg error : node name is null\n");
             return -1;
         }
+        sprintf(ifname_parent, "rlab-%s-", node_name);
+        sprintf(ifname_child, "rlab-%s", node_name);
 
-        char nsname[64], ifname[64];
+        netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1));
 
-        sprintf(nsname, "rlab-%s", node_name);
-        sprintf(ifname, "rlab-%s", node_name);
-        do_system("ip netns add %s", nsname);
-        do_system("ip link add %s type veth peer name %s-", nsname, ifname);
-        do_system("ip link set %s netns %s", ifname, nsname);
-        do_system("ip netns exec %s ip link set dev lo up",
-                nsname);
-
-        if (name) {
-            sprintf(nsname, "rlab-%s", name);
-            do_system("ip link set %s- netns %s", ifname, nsname);
-            do_system("ip netns exec %s ip addr add %s/%d dev %s-",
-                    nsname, inet_ntoa(cur_net = next_net(cur_net, 32)), mask, ifname);
-            do_system("ip netns exec %s ip link set dev %s- up",
-                    nsname, ifname);
+        if (br_on) {
+            do_system_netns(name, "brctl addif br0 %s", ifname_parent);
+            ip_addr_alloc(node_name, net_begin, ifname_child, net_offset, ++ip_offset);
+            ++(*(pnet_offset));
+            _node_create(jobj, net_begin, pnet_offset);
         }
         else {
-            do_system("ip addr add %s/%d dev %s-",
-                   inet_ntoa(cur_net =next_net(cur_net, 32)), mask, ifname);
-            do_system("ip link set dev %s- up",
-                    ifname);
+            ip_addr_alloc(name, net_begin, ifname_parent, net_offset, 1);
+            ip_addr_alloc(node_name, net_begin, ifname_child, net_offset, 2);
+            ++(*(pnet_offset));
+            _node_create(jobj, net_begin, pnet_offset);
+            net_offset = *pnet_offset;
         }
 
-        sprintf(nsname, "rlab-%s", node_name);
-        do_system("ip netns exec %s ip addr add %s/%d dev %s",
-                nsname, inet_ntoa(cur_net = next_net(cur_net, 32)), mask, ifname);
-        do_system("ip netns exec %s ip link set dev %s up",
-                nsname, ifname);
-
-        node_create(jobj);
-
-        cur_net = next_net(cur_net, mask);
     }
 
     return 0;
 }
 
+inline static int 
+node_create(json_object *jroot)
+{
+    struct in_addr net_begin;
+    int net_offset = 0;
+    net_begin.s_addr = inet_addr("172.168.9.0");
+    return _node_create(jroot, net_begin, &net_offset);
+}
 
 int main(int argc, char *argv[])
 {
     char *cfgfile;
     char *file = NULL;
-    char *orig_data = NULL;
-    char *print_str = NULL;
-    size_t orig_size = 0, print_size = 0;
     json_mem_t mem;
+    json_object *json = NULL;
 
     if (argc != 2) {
         printf("usage : %s cfgfile\n", argv[0]);
@@ -217,9 +198,7 @@ int main(int argc, char *argv[])
 
     pjson_memory_init(&mem);
 
-    json_object *json = NULL;
-    json = json_fast_parse_file(cfgfile, &mem);
-    if (json == NULL) {
+    if ((json = json_fast_parse_file(cfgfile, &mem)) == NULL) {
         printf("json parse failed!\n");
         return -1;
     }

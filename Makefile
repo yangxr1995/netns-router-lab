@@ -1,5 +1,5 @@
 
-target := router-lab
+target := rlab
 
 router-lab-obj := ./main.o ./json.o ./jnum.o
 
@@ -9,7 +9,7 @@ LDFLAGS := -lm
 
 all:$(target)
 
-router-lab:$(router-lab-obj)
+rlab:$(router-lab-obj)
 	$(CC) $^ $(LDFLAGS) -o $@
 
 %.o:%.c
