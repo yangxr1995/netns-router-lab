@@ -46,7 +46,7 @@ do_system(char *fmt, ...)
     vsnprintf(cmd, sizeof(cmd), fmt, ap);
     va_end(ap);
 
-    /*printf("%s\n", cmd);*/
+    printf("%s\n", cmd);
     system(cmd);
 }
 
@@ -64,7 +64,7 @@ do_system_netns(char *name, char *fmt, ...)
         sprintf(cmd, "ip netns exec rlab-%s ", name);
     strcat(cmd, tmp);
 
-    /*printf("%s\n", cmd);*/
+    printf("%s\n", cmd);
     system(cmd);
 }
 
@@ -80,9 +80,9 @@ json_get_bool(json_object *jroot, char *key)
 }
 
 void
-netns_init(char *parent_name, char *name, struct in_addr gw)
+netns_init(char *parent_name, char *name, struct in_addr gw, int vlan_id)
 {
-    char nsname[64], ifname[64], parent_nsname[64];
+    char nsname[64], ifname[64] ;
 
     sprintf(nsname, "rlab-%s", name);
     sprintf(ifname, "rlab-%s", name);
@@ -90,20 +90,34 @@ netns_init(char *parent_name, char *name, struct in_addr gw)
     do_system("ip netns add %s", nsname);
     do_system("ip link add %s type veth peer name %s-", nsname, ifname);
     do_system("ip link set %s netns %s", ifname, nsname);
+    if (parent_name)
+        do_system("ip link set %s- netns rlab-%s", ifname, parent_name);
+
     do_system("ip netns exec %s ip link set dev lo up", nsname);
-    do_system("ip netns exec %s ip link set dev %s up",
-            nsname, ifname);
-    do_system("ip netns exec %s ip route add default via %s dev %s onlink",
-            nsname, inet_ntoa(gw), ifname);
-    do_system("ip netns exec %s iptables -t nat -I POSTROUTING -o %s -j MASQUERADE",
-            nsname, ifname);
-
-    if (parent_name) {
-        sprintf(parent_nsname, "rlab-%s", parent_name);
-        do_system("ip link set %s- netns %s", ifname, parent_nsname);
-    }
-
+    do_system("ip netns exec %s ip link set dev %s up", nsname, ifname);
     do_system_netns(parent_name, "ip link set dev %s- up", ifname);
+
+    if (vlan_id > 0) {
+
+        do_system_netns(parent_name, "ip link add link %s- name %s.%d- type vlan id %d",
+                ifname, ifname, vlan_id, vlan_id);
+        do_system_netns(parent_name, "ip link set dev %s.%d- up", ifname, vlan_id);
+
+        do_system("ip netns exec %s ip link add link %s name %s.%d type vlan id %d",
+                nsname, ifname, ifname, vlan_id, vlan_id);
+        do_system("ip netns exec %s ip link set %s.%d up", nsname, ifname, vlan_id);
+
+        do_system("ip netns exec %s ip route add default via %s dev %s.%d onlink",
+                nsname, inet_ntoa(gw), ifname, vlan_id);
+        do_system("ip netns exec %s iptables -t nat -I POSTROUTING -o %s.%d -j MASQUERADE",
+                nsname, ifname, vlan_id);
+    }
+    else {
+        do_system("ip netns exec %s ip route add default via %s dev %s onlink",
+                nsname, inet_ntoa(gw), ifname);
+        do_system("ip netns exec %s iptables -t nat -I POSTROUTING -o %s -j MASQUERADE",
+                nsname, ifname);
+    }
 }
 
 inline static void
@@ -114,6 +128,17 @@ ip_addr_alloc(char *name, struct in_addr net, char *dev, int net_offset, int ip_
     do_system_netns(name, "ip link set dev %s up", dev);
 }
 
+inline static int
+json_get_int(json_object *jroot, char *key)
+{
+    json_object *jobj;
+
+    if ((jobj = json_get_object_item(jroot, key, NULL)) == NULL)
+        return -1;
+
+    return json_get_int_value(jobj);
+}
+
 int 
 _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
 {
@@ -121,6 +146,7 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
     char *name;
     json_object *jnodes, *jobj;
     char br_on = 0;
+    int lan_vlan_id = 0;
 
     name = json_get_string(jroot, "name");
     br_on = json_get_bool(jroot, "br");
@@ -149,10 +175,20 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
             printf("cfg error : node name is null\n");
             return -1;
         }
-        sprintf(ifname_parent, "rlab-%s-", node_name);
-        sprintf(ifname_child, "rlab-%s", node_name);
 
-        netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1));
+        lan_vlan_id = json_get_int(jobj, "vlan");
+        printf("lan_vlan_id : %d\n", lan_vlan_id);
+
+        netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1), lan_vlan_id);
+
+        if (lan_vlan_id > 0) {
+            sprintf(ifname_parent, "rlab-%s.%d-", node_name, lan_vlan_id);
+            sprintf(ifname_child, "rlab-%s.%d", node_name, lan_vlan_id);
+        }
+        else {
+            sprintf(ifname_parent, "rlab-%s-", node_name);
+            sprintf(ifname_child, "rlab-%s", node_name);
+        }
 
         if (br_on) {
             do_system_netns(name, "brctl addif br0 %s", ifname_parent);

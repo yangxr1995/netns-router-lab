@@ -5,12 +5,19 @@
             "nodes" : [
                 {
                     "name" : "router1",
+                    "br" : true,
                     "nodes" : [
                         {
-                            "name" : "pc1"
+                            "name" : "pc1-1"
                         },
                         {
-                            "name" : "pc2"
+                            "name" : "pc1-2"
+                        },
+                        {
+                            "name" : "pc1-3"
+                        },
+                        {
+                            "name" : "pc1-4"
                         }
                     ]
                 },
@@ -19,10 +26,10 @@
                     "br" : true,
                     "nodes" : [
                         {
-                            "name" : "pc3"
+                            "name" : "pc2-1"
                         },
                         {
-                            "name" : "pc4"
+                            "name" : "pc2-2"
                         }
                     ]
                 },
@@ -31,10 +38,10 @@
                     "br" : true,
                     "nodes" : [
                         {
-                            "name" : "pc5"
+                            "name" : "pc3-1"
                         },
                         {
-                            "name" : "pc6"
+                            "name" : "pc3-2"
                         }
                     ]
                 },
@@ -43,10 +50,10 @@
                     "br" : true,
                     "nodes" : [
                         {
-                            "name" : "pc7"
+                            "name" : "pc4-1"
                         },
                         {
-                            "name" : "pc8"
+                            "name" : "pc4-2"
                         }
                     ]
                 }
