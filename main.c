@@ -80,7 +80,7 @@ json_get_bool(json_object *jroot, char *key)
 }
 
 void
-netns_init(char *parent_name, char *name, struct in_addr gw, int vlan_id)
+netns_init(char *parent_name, char *name, struct in_addr gw)
 {
     char nsname[64], ifname[64] ;
 
@@ -97,27 +97,10 @@ netns_init(char *parent_name, char *name, struct in_addr gw, int vlan_id)
     do_system("ip netns exec %s ip link set dev %s up", nsname, ifname);
     do_system_netns(parent_name, "ip link set dev %s- up", ifname);
 
-    if (vlan_id > 0) {
-
-        do_system_netns(parent_name, "ip link add link %s- name %s.%d- type vlan id %d",
-                ifname, ifname, vlan_id, vlan_id);
-        do_system_netns(parent_name, "ip link set dev %s.%d- up", ifname, vlan_id);
-
-        do_system("ip netns exec %s ip link add link %s name %s.%d type vlan id %d",
-                nsname, ifname, ifname, vlan_id, vlan_id);
-        do_system("ip netns exec %s ip link set %s.%d up", nsname, ifname, vlan_id);
-
-        do_system("ip netns exec %s ip route add default via %s dev %s.%d onlink",
-                nsname, inet_ntoa(gw), ifname, vlan_id);
-        do_system("ip netns exec %s iptables -t nat -I POSTROUTING -o %s.%d -j MASQUERADE",
-                nsname, ifname, vlan_id);
-    }
-    else {
-        do_system("ip netns exec %s ip route add default via %s dev %s onlink",
-                nsname, inet_ntoa(gw), ifname);
-        do_system("ip netns exec %s iptables -t nat -I POSTROUTING -o %s -j MASQUERADE",
-                nsname, ifname);
-    }
+    do_system("ip netns exec %s ip route add default via %s dev %s onlink",
+            nsname, inet_ntoa(gw), ifname);
+    do_system("ip netns exec %s iptables -t nat -I POSTROUTING -o %s -j MASQUERADE",
+            nsname, ifname);
 }
 
 inline static void
@@ -145,11 +128,12 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
     int net_offset = *pnet_offset;
     char *name;
     json_object *jnodes, *jobj;
-    char br_on = 0;
-    int lan_vlan_id = 0;
+    char br_on = 0, vlan_on = 0;
+    int vid = 0;
 
     name = json_get_string(jroot, "name");
     br_on = json_get_bool(jroot, "br");
+    vlan_on = json_get_bool(jroot, "vlan");
 
     if ((jnodes = json_get_object_item(jroot, "nodes", NULL)) == NULL)
         return 0;
@@ -164,6 +148,8 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
     if (br_on) {
         do_system_netns(name, "brctl addbr br0");
         ip_addr_alloc(name, net_begin, "br0", net_offset, ++ip_offset);
+        if (vlan_on)
+            do_system_netns(name, "ip link set br0 type bridge vlan_filtering 1");
     }
 
     for (i = 0; i < arr_sz; ++i) {
@@ -176,25 +162,29 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
             return -1;
         }
 
-        lan_vlan_id = json_get_int(jobj, "vlan");
-        printf("lan_vlan_id : %d\n", lan_vlan_id);
-
-        netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1), lan_vlan_id);
-
-        if (lan_vlan_id > 0) {
-            sprintf(ifname_parent, "rlab-%s.%d-", node_name, lan_vlan_id);
-            sprintf(ifname_child, "rlab-%s.%d", node_name, lan_vlan_id);
-        }
-        else {
-            sprintf(ifname_parent, "rlab-%s-", node_name);
-            sprintf(ifname_child, "rlab-%s", node_name);
+        if (br_on && vlan_on) {
+            if ((vid = json_get_int(jobj, "vid")) < 0) {
+                printf("error : %s vid must set", node_name);
+                exit(-1);
+            }
         }
 
+        netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1));
+
+        sprintf(ifname_parent, "rlab-%s-", node_name);
+        sprintf(ifname_child, "rlab-%s", node_name);
+
+/*bridge vlan add dev guest_1_tap_0 vid 2 pvid untagged master*/
         if (br_on) {
             do_system_netns(name, "brctl addif br0 %s", ifname_parent);
             ip_addr_alloc(node_name, net_begin, ifname_child, net_offset, ++ip_offset);
             ++(*(pnet_offset));
             _node_create(jobj, net_begin, pnet_offset);
+
+            if (vlan_on) {
+                do_system_netns(name, "bridge vlan add dev br0 vid %d untagged self", vid);
+                do_system_netns(name, "bridge vlan add dev %s vid %d pvid untagged", ifname_parent, vid);
+            }
         }
         else {
             ip_addr_alloc(name, net_begin, ifname_parent, net_offset, 1);

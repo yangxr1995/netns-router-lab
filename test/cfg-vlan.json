@@ -1,0 +1,30 @@
+{
+    "nodes" : [
+        {
+            "name" : "internet",
+            "nodes" : [
+                {
+                    "name" : "router1",
+                    "br" : true,
+                    "vlan" : true,
+                    "nodes" : [
+                        {
+                            "name" : "pc1",
+                            "vid" : 10
+                        },
+                        {
+                            "name" : "pc2",
+                            "vid" : 10
+                        },
+                        {
+                            "name" : "pc3",
+                            "vid" : 20
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+
+}
+
