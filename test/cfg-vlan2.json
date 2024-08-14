@@ -1,0 +1,51 @@
+{
+    "nodes" : [
+        {
+            "name" : "internet",
+            "nodes" : [
+                {
+                    "name" : "router1",
+                    "br" : true,
+                    "lan" : "192.168.3.1",
+                    "vlan" : true,
+                    "nodes" : [
+                        {
+                            "vid" : 10,
+                            "name" : "pc1-1"
+                        },
+                        {
+                            "vid" : 10,
+                            "name" : "pc1-2"
+                        },
+                        {
+                            "vid" : 20,
+                            "name" : "pc1-3"
+                        }
+                    ]
+                },
+                {
+                    "name" : "router2",
+                    "br" : true,
+                    "lan" : "192.168.3.11",
+                    "vlan": true,
+                    "nodes" : [
+                        {
+                            "vid" : 10,
+                            "name" : "pc2-1"
+                        },
+                        {
+                            "vid" : 10,
+                            "name" : "pc2-2"
+                        },
+                        {
+                            "vid" : 20,
+                            "name" : "pc2-3"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+
+}
+

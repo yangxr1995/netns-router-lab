@@ -104,7 +104,8 @@ netns_init(char *parent_name, char *name, struct in_addr gw)
 }
 
 inline static void
-ip_addr_alloc(char *name, struct in_addr net, char *dev, int net_offset, int ip_offset)
+ip_addr_alloc(char *name, struct in_addr net, char *dev, 
+        int net_offset, int ip_offset)
 {
     do_system_netns(name, "ip addr add %s/%d dev %s", 
             inet_ntoa(alloc_ip(net, net_offset, ip_offset)), 24, dev);
@@ -130,10 +131,21 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
     json_object *jnodes, *jobj;
     char br_on = 0, vlan_on = 0;
     int vid = 0;
+    char *lan_str;
+    struct in_addr lan_addr = {0};
+    int vxlan_id;
 
     name = json_get_string(jroot, "name");
     br_on = json_get_bool(jroot, "br");
     vlan_on = json_get_bool(jroot, "vlan");
+    vxlan_id = json_get_int(jroot, "vxlan");
+
+    if (br_on) {
+        if ((lan_str = json_get_string(jroot, "lan")) != NULL)
+            lan_addr.s_addr = inet_addr(lan_str);
+        else
+            lan_addr.s_addr = 0;
+    }
 
     if ((jnodes = json_get_object_item(jroot, "nodes", NULL)) == NULL)
         return 0;
@@ -147,7 +159,12 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
 
     if (br_on) {
         do_system_netns(name, "brctl addbr br0");
-        ip_addr_alloc(name, net_begin, "br0", net_offset, ++ip_offset);
+
+        if (lan_addr.s_addr)
+            ip_addr_alloc(name, lan_addr, "br0", 0, ip_offset++);
+        else
+            ip_addr_alloc(name, net_begin, "br0", net_offset, ++ip_offset);
+
         if (vlan_on)
             do_system_netns(name, "ip link set br0 type bridge vlan_filtering 1");
     }
@@ -169,15 +186,22 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
             }
         }
 
-        netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1));
+        if (br_on && lan_addr.s_addr)
+            netns_init(name, node_name, lan_addr);
+        else
+            netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1));
 
         sprintf(ifname_parent, "rlab-%s-", node_name);
         sprintf(ifname_child, "rlab-%s", node_name);
 
-/*bridge vlan add dev guest_1_tap_0 vid 2 pvid untagged master*/
         if (br_on) {
             do_system_netns(name, "brctl addif br0 %s", ifname_parent);
-            ip_addr_alloc(node_name, net_begin, ifname_child, net_offset, ++ip_offset);
+
+            if (lan_addr.s_addr)
+                ip_addr_alloc(node_name, lan_addr, ifname_child, 0, ip_offset++);
+            else
+                ip_addr_alloc(node_name, net_begin, ifname_child, net_offset, ++ip_offset);
+
             ++(*(pnet_offset));
             _node_create(jobj, net_begin, pnet_offset);
 
@@ -202,9 +226,10 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
 inline static int 
 node_create(json_object *jroot)
 {
-    struct in_addr net_begin;
+    struct in_addr net_begin, gw;
     int net_offset = 0;
     net_begin.s_addr = inet_addr("172.168.9.0");
+    gw.s_addr = 0;
     return _node_create(jroot, net_begin, &net_offset);
 }
 
