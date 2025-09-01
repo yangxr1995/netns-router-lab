@@ -175,7 +175,14 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
             do_system_netns(name, "ip link set br0 type bridge vlan_filtering 1");
     }
 
-    do_system_netns(name, "sysctl -w net.ipv4.ip_forward=1");
+    bool forward = true;
+    if (json_get_object_item(jroot, "forward", NULL)) {
+        if (!json_get_bool(jroot, "forward"))
+            forward = false;
+    }
+
+    if (forward && name)
+        do_system_netns(name, "sysctl -w net.ipv4.ip_forward=1");
 
     char *ifname_u;
 
