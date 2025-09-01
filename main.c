@@ -169,6 +169,8 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
             do_system_netns(name, "ip link set br0 type bridge vlan_filtering 1");
     }
 
+    do_system_netns(name, "sysctl -w net.ipv4.ip_forward=1");
+
     for (i = 0; i < arr_sz; ++i) {
 
         if ((jobj = json_get_array_item(jnodes, i, NULL)) == NULL)
