@@ -80,7 +80,9 @@ json_get_bool(json_object *jroot, char *key)
 }
 
 void
-netns_init(char *parent_name, char *name, struct in_addr gw, char *ifname_parent, char *ifname_child, char *ifname_u)
+netns_init(char *parent_name, char *name, struct in_addr gw, 
+        char *ifname_parent, char *ifname_child, 
+        char *ifname_u_parent, char *ifname_u_child)
 {
     char nsname[64];
 
@@ -92,11 +94,18 @@ netns_init(char *parent_name, char *name, struct in_addr gw, char *ifname_parent
     if (parent_name)
         do_system("ip link set %s netns rlab-%s", ifname_parent, parent_name);
 
-    if (ifname_u) {
+    if (ifname_u_child) {
         do_system_netns(name, "ip link set dev %s down", ifname_child);
-        do_system_netns(name, "ip link set dev %s name %s", ifname_child, ifname_u);
-        strcpy(ifname_child, ifname_u);
+        do_system_netns(name, "ip link set dev %s name %s", ifname_child, ifname_u_child);
+        strcpy(ifname_child, ifname_u_child);
         do_system_netns(name, "ip link set dev %s up", ifname_child);
+    }
+
+    if (ifname_u_parent) {
+        do_system_netns(parent_name, "ip link set dev %s down", ifname_parent);
+        do_system_netns(parent_name, "ip link set dev %s name %s", ifname_parent, ifname_u_parent);
+        sprintf(ifname_parent, "%s", ifname_u_parent);
+        do_system_netns(parent_name, "ip link set dev %s up", ifname_parent);
     }
 
     do_system_netns(name, "ip link set dev lo up");
@@ -204,14 +213,18 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
             }
         }
 
+        char *ifname_u_parent;
+        ifname_u_parent = json_get_string(jobj, "ifname_parent");
         ifname_u = json_get_string(jobj, "ifname");
         sprintf(ifname_parent, "rlab-%s-", node_name);
         sprintf(ifname_child, "rlab-%s", node_name);
 
         if (br_on && lan_addr.s_addr)
-            netns_init(name, node_name, lan_addr, ifname_parent, ifname_child, ifname_u);
+            netns_init(name, node_name, lan_addr, ifname_parent, ifname_child, 
+                    ifname_u_parent, ifname_u);
         else
-            netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1), ifname_parent, ifname_child, ifname_u);
+            netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1), 
+                    ifname_parent, ifname_child, ifname_u_parent, ifname_u);
 
         if (br_on) {
             do_system_netns(name, "brctl addif br0 %s", ifname_parent);
