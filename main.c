@@ -80,27 +80,33 @@ json_get_bool(json_object *jroot, char *key)
 }
 
 void
-netns_init(char *parent_name, char *name, struct in_addr gw)
+netns_init(char *parent_name, char *name, struct in_addr gw, char *ifname_parent, char *ifname_child, char *ifname_u)
 {
-    char nsname[64], ifname[64] ;
+    char nsname[64];
 
     sprintf(nsname, "rlab-%s", name);
-    sprintf(ifname, "rlab-%s", name);
 
     do_system("ip netns add %s", nsname);
-    do_system("ip link add %s type veth peer name %s-", nsname, ifname);
-    do_system("ip link set %s netns %s", ifname, nsname);
+    do_system("ip link add %s type veth peer name %s", ifname_parent, ifname_child);
+    do_system("ip link set %s netns %s", ifname_child, nsname);
     if (parent_name)
-        do_system("ip link set %s- netns rlab-%s", ifname, parent_name);
+        do_system("ip link set %s netns rlab-%s", ifname_parent, parent_name);
 
-    do_system("ip netns exec %s ip link set dev lo up", nsname);
-    do_system("ip netns exec %s ip link set dev %s up", nsname, ifname);
-    do_system_netns(parent_name, "ip link set dev %s- up", ifname);
+    if (ifname_u) {
+        do_system_netns(name, "ip link set dev %s down", ifname_child);
+        do_system_netns(name, "ip link set dev %s name %s", ifname_child, ifname_u);
+        strcpy(ifname_child, ifname_u);
+        do_system_netns(name, "ip link set dev %s up", ifname_child);
+    }
 
-    do_system("ip netns exec %s ip route add default via %s dev %s onlink",
-            nsname, inet_ntoa(gw), ifname);
-    do_system("ip netns exec %s iptables -t nat -I POSTROUTING -o %s -j MASQUERADE",
-            nsname, ifname);
+    do_system_netns(name, "ip link set dev lo up");
+    do_system_netns(name, "ip link set dev %s up", ifname_child);
+    do_system_netns(parent_name, "ip link set dev %s up", ifname_parent);
+
+    do_system_netns(name, "ip route add default via %s dev %s onlink",
+            inet_ntoa(gw), ifname_child);
+    do_system_netns(name, "iptables -t nat -I POSTROUTING -o %s -j MASQUERADE",
+            ifname_child);
 }
 
 inline static void
@@ -171,6 +177,8 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
 
     do_system_netns(name, "sysctl -w net.ipv4.ip_forward=1");
 
+    char *ifname_u;
+
     for (i = 0; i < arr_sz; ++i) {
 
         if ((jobj = json_get_array_item(jnodes, i, NULL)) == NULL)
@@ -181,6 +189,7 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
             return -1;
         }
 
+
         if (br_on && vlan_on) {
             if ((vid = json_get_int(jobj, "vid")) < 0) {
                 printf("error : %s vid must set", node_name);
@@ -188,13 +197,14 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
             }
         }
 
-        if (br_on && lan_addr.s_addr)
-            netns_init(name, node_name, lan_addr);
-        else
-            netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1));
-
+        ifname_u = json_get_string(jobj, "ifname");
         sprintf(ifname_parent, "rlab-%s-", node_name);
         sprintf(ifname_child, "rlab-%s", node_name);
+
+        if (br_on && lan_addr.s_addr)
+            netns_init(name, node_name, lan_addr, ifname_parent, ifname_child, ifname_u);
+        else
+            netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1), ifname_parent, ifname_child, ifname_u);
 
         if (br_on) {
             do_system_netns(name, "brctl addif br0 %s", ifname_parent);
