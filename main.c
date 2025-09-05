@@ -119,6 +119,13 @@ netns_init(char *parent_name, char *name, struct in_addr gw,
     do_system_netns(name, "ip link set dev %s up", ifname_child);
     do_system_netns(parent_name, "ip link set dev %s up", ifname_parent);
 
+    // TODO: 多wan时需要配置 ip rule
+    // ❯ ip rule
+    // 0:      from all lookup local
+    // 32762:  from all oif eth0 lookup 10
+    // 32765:  from 192.168.3.2/24 lookup 10
+    // ❯ ip route show table 10
+    // default via 192.168.3.1 dev eth0 src 192.168.3.2
     do_system_netns(name, "ip route add default via %s dev %s onlink",
             inet_ntoa(gw), ifname_child);
     do_system_netns(name, "iptables -t nat -I POSTROUTING -o %s -j MASQUERADE",
