@@ -16,6 +16,7 @@
 
 typedef struct {
     char name[64];
+    int rtable_idx;
     bool if_init;
 } gnode_t;
 
@@ -90,9 +91,10 @@ json_get_bool(json_object *jroot, char *key)
 void
 netns_init(char *parent_name, char *name, struct in_addr gw, 
         char *ifname_parent, char *ifname_child, 
-        char *ifname_u_parent, char *ifname_u_child, gnode_t *gnode)
+        char *ifname_u_parent, char *ifname_u_child, gnode_t *gnode, bool if_gw)
 {
     char nsname[64];
+    static int rtable_idx = 1234;
 
     sprintf(nsname, "rlab-%s", name);
 
@@ -119,26 +121,47 @@ netns_init(char *parent_name, char *name, struct in_addr gw,
     do_system_netns(name, "ip link set dev %s up", ifname_child);
     do_system_netns(parent_name, "ip link set dev %s up", ifname_parent);
 
-    // TODO: 多wan时需要配置 ip rule
-    // ❯ ip rule
-    // 0:      from all lookup local
-    // 32762:  from all oif eth0 lookup 10
-    // 32765:  from 192.168.3.2/24 lookup 10
-    // ❯ ip route show table 10
-    // default via 192.168.3.1 dev eth0 src 192.168.3.2
-    do_system_netns(name, "ip route add default via %s dev %s onlink",
-            inet_ntoa(gw), ifname_child);
-    do_system_netns(name, "iptables -t nat -I POSTROUTING -o %s -j MASQUERADE",
-            ifname_child);
+    if (gnode && gnode->if_init) {
+
+        char cmd[256];
+        sprintf(cmd, "ip route add default via %s dev %s table %d onlink", inet_ntoa(gw), ifname_child, rtable_idx);
+        do_system_netns(name, cmd);
+        sprintf(cmd, "ip rule add oif %s table %d", ifname_child, rtable_idx);
+        do_system_netns(name, cmd);
+        // sprintf(cmd, "ip rule add from $(ip addr show dev %s | awk '/inet / {print $2}') table %d", ifname_child, rtable_idx);
+        // do_system_netns(name, cmd);
+
+        gnode->rtable_idx = rtable_idx;
+
+        rtable_idx++;
+
+        if (if_gw) {
+            do_system_netns(name, "ip route add default via %s dev %s onlink",
+                    inet_ntoa(gw), ifname_child);
+        }
+        
+    }
+    else {
+        do_system_netns(name, "ip route add default via %s dev %s onlink",
+                inet_ntoa(gw), ifname_child);
+        do_system_netns(name, "iptables -t nat -I POSTROUTING -o %s -j MASQUERADE",
+                ifname_child);
+    }
 }
 
 inline static void
 ip_addr_alloc(char *name, struct in_addr net, char *dev, 
-        int net_offset, int ip_offset)
+        int net_offset, int ip_offset, gnode_t *gnode)
 {
-    do_system_netns(name, "ip addr add %s/%d dev %s", 
-            inet_ntoa(alloc_ip(net, net_offset, ip_offset)), 24, dev);
+    struct in_addr addr = alloc_ip(net, net_offset, ip_offset);
+    do_system_netns(name, "ip addr add %s/%d dev %s", inet_ntoa(addr), 24, dev);
     do_system_netns(name, "ip link set dev %s up", dev);
+
+    if (gnode && gnode->if_init) {
+        char cmd[256];
+        sprintf(cmd, "ip rule add from %s table %d", inet_ntoa(addr), gnode->rtable_idx);
+        do_system_netns(name, cmd);
+    }
 }
 
 inline static int
@@ -152,6 +175,16 @@ json_get_int(json_object *jroot, char *key)
     return json_get_int_value(jobj);
 }
 
+inline static gnode_t *
+get_node(json_object *jobj)
+{
+    int gid;
+    if ((gid = json_get_int(jobj, "gid")) != -1)
+        return gnodes + gid;
+    return NULL;
+}
+
+
 int 
 _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
 {
@@ -163,6 +196,7 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
     char *lan_str;
     struct in_addr lan_addr = {0};
     int vxlan_id;
+    gnode_t *gnode = NULL, *gnode_child = NULL;
 
     name = json_get_string(jroot, "name");
     br_on = json_get_bool(jroot, "br");
@@ -179,6 +213,8 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
     if ((jnodes = json_get_object_item(jroot, "nodes", NULL)) == NULL)
         return 0;
 
+    gnode = get_node(jroot);
+
     int arr_sz, i;
     arr_sz = json_get_array_size(jnodes);
 
@@ -190,9 +226,9 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
         do_system_netns(name, "brctl addbr br0");
 
         if (lan_addr.s_addr)
-            ip_addr_alloc(name, lan_addr, "br0", 0, ip_offset++);
+            ip_addr_alloc(name, lan_addr, "br0", 0, ip_offset++, NULL);
         else
-            ip_addr_alloc(name, net_begin, "br0", net_offset, ++ip_offset);
+            ip_addr_alloc(name, net_begin, "br0", net_offset, ++ip_offset, NULL);
 
         if (vlan_on)
             do_system_netns(name, "ip link set br0 type bridge vlan_filtering 1");
@@ -209,39 +245,32 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
 
     char *ifname_u;
     int gid;
-    gnode_t *gnode = NULL;
+    bool if_gw = false;
 
     for (i = 0; i < arr_sz; ++i) {
 
         if ((jobj = json_get_array_item(jnodes, i, NULL)) == NULL)
             break;
 
-        gnode = NULL;
-        gid = json_get_int(jobj, "gid");
-        if (gid != -1) {
-            gnode = gnodes + gid;
-        }
+        gnode_child = get_node(jobj);
 
+        if (gnode_child) {
 
-        if (gnode) {
-
-            bool if_gw = false;
-
-            if (gnode->if_init) {
+            if (gnode_child->if_init) {
 
                 if_gw = json_get_bool(jobj, "gw");
                 if (if_gw)
-                    do_system_netns(gnode->name, "ip route del default");
-                node_name = gnode->name;
+                    do_system_netns(gnode_child->name, "ip route del default");
+                node_name = gnode_child->name;
             }
             else {
                 if ((node_name = json_get_string(jobj, "name")) == NULL) {
                     printf("cfg error : node name is null\n");
                     return -1;
                 }
-                strcpy(gnode->name, node_name);
+                strcpy(gnode_child->name, node_name);
                 do_system("ip netns add rlab-%s", node_name);
-                gnode->if_init = true;
+                gnode_child->if_init = true;
             }
         }
         else {
@@ -267,18 +296,18 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
 
         if (br_on && lan_addr.s_addr)
             netns_init(name, node_name, lan_addr, ifname_parent, ifname_child, 
-                    ifname_u_parent, ifname_u, gnode);
+                    ifname_u_parent, ifname_u, gnode_child, if_gw);
         else
             netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1), 
-                    ifname_parent, ifname_child, ifname_u_parent, ifname_u, gnode);
+                    ifname_parent, ifname_child, ifname_u_parent, ifname_u, gnode_child, if_gw);
 
         if (br_on) {
             do_system_netns(name, "brctl addif br0 %s", ifname_parent);
 
             if (lan_addr.s_addr)
-                ip_addr_alloc(node_name, lan_addr, ifname_child, 0, ip_offset++);
+                ip_addr_alloc(node_name, lan_addr, ifname_child, 0, ip_offset++, gnode_child);
             else
-                ip_addr_alloc(node_name, net_begin, ifname_child, net_offset, ++ip_offset);
+                ip_addr_alloc(node_name, net_begin, ifname_child, net_offset, ++ip_offset, gnode_child);
 
             ++(*(pnet_offset));
             _node_create(jobj, net_begin, pnet_offset);
@@ -289,8 +318,8 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
             }
         }
         else {
-            ip_addr_alloc(name, net_begin, ifname_parent, net_offset, 1);
-            ip_addr_alloc(node_name, net_begin, ifname_child, net_offset, 2);
+            ip_addr_alloc(name, net_begin, ifname_parent, net_offset, 1, NULL);
+            ip_addr_alloc(node_name, net_begin, ifname_child, net_offset, 2, gnode_child);
             ++(*(pnet_offset));
             _node_create(jobj, net_begin, pnet_offset);
             net_offset = *pnet_offset;
