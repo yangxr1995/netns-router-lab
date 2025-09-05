@@ -1,0 +1,39 @@
+{
+    "nodes" : [
+        {
+            "name" : "internet",
+            "nodes" : [
+                {
+                    "name" : "router1",
+                    "br" : true,
+                    "lan" : "192.168.3.1",
+                    "ifname_parent" : "eth0",
+                    "nodes" : [
+                        {
+                            "name" : "pc",
+                            "ifname" : "eth0",
+                            "forward" : false,
+                            "gid" : 1
+                        }
+                    ]
+                },
+                {
+                    "name" : "router2",
+                    "br" : true,
+                    "lan" : "192.168.4.1",
+                    "ifname_parent" : "eth1",
+                    "nodes" : [
+                        {
+                            "ifname" : "eth1",
+                            "gid" : 1,
+                            "gw" : true
+                        }
+                    ]
+                }
+
+            ]
+        }
+    ]
+
+}
+

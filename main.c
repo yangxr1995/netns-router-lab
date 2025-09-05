@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -12,6 +13,13 @@
 #define type_member                     jkey.type
 #define key_member                      jkey.str
 #define str_member                      vstr.str
+
+typedef struct {
+    char name[64];
+    bool if_init;
+} gnode_t;
+
+static gnode_t gnodes[128];
 
 inline static char *
 json_get_string(json_object *jroot, char *key)
@@ -82,13 +90,12 @@ json_get_bool(json_object *jroot, char *key)
 void
 netns_init(char *parent_name, char *name, struct in_addr gw, 
         char *ifname_parent, char *ifname_child, 
-        char *ifname_u_parent, char *ifname_u_child)
+        char *ifname_u_parent, char *ifname_u_child, gnode_t *gnode)
 {
     char nsname[64];
 
     sprintf(nsname, "rlab-%s", name);
 
-    do_system("ip netns add %s", nsname);
     do_system("ip link add %s type veth peer name %s", ifname_parent, ifname_child);
     do_system("ip link set %s netns %s", ifname_child, nsname);
     if (parent_name)
@@ -194,17 +201,49 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
         do_system_netns(name, "sysctl -w net.ipv4.ip_forward=1");
 
     char *ifname_u;
+    int gid;
+    gnode_t *gnode = NULL;
 
     for (i = 0; i < arr_sz; ++i) {
 
         if ((jobj = json_get_array_item(jnodes, i, NULL)) == NULL)
             break;
 
-        if ((node_name = json_get_string(jobj, "name")) == NULL) {
-            printf("cfg error : node name is null\n");
-            return -1;
+        gnode = NULL;
+        gid = json_get_int(jobj, "gid");
+        if (gid != -1) {
+            gnode = gnodes + gid;
         }
 
+
+        if (gnode) {
+
+            bool if_gw = false;
+
+            if (gnode->if_init) {
+
+                if_gw = json_get_bool(jobj, "gw");
+                if (if_gw)
+                    do_system_netns(gnode->name, "ip route del default");
+                node_name = gnode->name;
+            }
+            else {
+                if ((node_name = json_get_string(jobj, "name")) == NULL) {
+                    printf("cfg error : node name is null\n");
+                    return -1;
+                }
+                strcpy(gnode->name, node_name);
+                do_system("ip netns add rlab-%s", node_name);
+                gnode->if_init = true;
+            }
+        }
+        else {
+            if ((node_name = json_get_string(jobj, "name")) == NULL) {
+                printf("cfg error : node name is null\n");
+                return -1;
+            }
+            do_system("ip netns add rlab-%s", node_name);
+        }
 
         if (br_on && vlan_on) {
             if ((vid = json_get_int(jobj, "vid")) < 0) {
@@ -221,10 +260,10 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
 
         if (br_on && lan_addr.s_addr)
             netns_init(name, node_name, lan_addr, ifname_parent, ifname_child, 
-                    ifname_u_parent, ifname_u);
+                    ifname_u_parent, ifname_u, gnode);
         else
             netns_init(name, node_name, alloc_ip(net_begin, net_offset, 1), 
-                    ifname_parent, ifname_child, ifname_u_parent, ifname_u);
+                    ifname_parent, ifname_child, ifname_u_parent, ifname_u, gnode);
 
         if (br_on) {
             do_system_netns(name, "brctl addif br0 %s", ifname_parent);
