@@ -59,6 +59,19 @@ do_system(char *fmt, ...)
     system(cmd);
 }
 
+// 避免 cmd中有 % (比如100%) 导致误识别为 fmt
+inline static void 
+do_system_netns2(char *name, char *str)
+{
+    char cmd[512] = {0};
+    if (name)
+        sprintf(cmd, "ip netns exec rlab-%s ", name);
+    strcat(cmd, str);
+
+    printf("%s\n", cmd);
+    system(cmd);
+}
+
 inline static void 
 do_system_netns(char *name, char *fmt, ...)
 {
@@ -219,7 +232,7 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
     arr_sz = json_get_array_size(jnodes);
 
     char *node_name;
-    char ifname_child[64], ifname_parent[64];
+    char ifname_child[128], ifname_parent[128];
     int ip_offset = 0;
 
     if (br_on) {
@@ -325,6 +338,16 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
             net_offset = *pnet_offset;
         }
 
+    }
+
+    json_object *exec_arr;
+    exec_arr = json_get_object_item(jroot, "exec", NULL);
+    if (exec_arr) {
+        int exec_arr_len = json_get_array_size(exec_arr);
+        for (int i = 0 ; i < exec_arr_len; ++i) {
+            json_object *exec = json_get_array_item(exec_arr, i, NULL);
+            do_system_netns2(name, exec->value.vstr.str);
+        }
     }
 
     return 0;

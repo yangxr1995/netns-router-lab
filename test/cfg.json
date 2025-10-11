@@ -6,54 +6,13 @@
                 {
                     "name" : "router1",
                     "br" : true,
+                    "exec" : [
+                        "tc-quick.sh --direction down  --delay 20ms --bandwidth 10Mbit --loss 0% ",
+                        "tc-quick.sh --direction up  --delay 20ms --bandwidth 10Mbit --loss 0% "
+                    ],
                     "nodes" : [
                         {
                             "name" : "pc1-1"
-                        },
-                        {
-                            "name" : "pc1-2"
-                        },
-                        {
-                            "name" : "pc1-3"
-                        },
-                        {
-                            "name" : "pc1-4"
-                        }
-                    ]
-                },
-                {
-                    "name" : "router2",
-                    "br" : true,
-                    "nodes" : [
-                        {
-                            "name" : "pc2-1"
-                        },
-                        {
-                            "name" : "pc2-2"
-                        }
-                    ]
-                },
-                {
-                    "name" : "router3",
-                    "br" : true,
-                    "nodes" : [
-                        {
-                            "name" : "pc3-1"
-                        },
-                        {
-                            "name" : "pc3-2"
-                        }
-                    ]
-                },
-                {
-                    "name" : "router4",
-                    "br" : true,
-                    "nodes" : [
-                        {
-                            "name" : "pc4-1"
-                        },
-                        {
-                            "name" : "pc4-2"
                         }
                     ]
                 }
