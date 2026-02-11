@@ -1,21 +1,23 @@
 
-target := rlab
+TARGET := rlab
 
-router-lab-obj := ./main.o ./json.o ./jnum.o
+OBJS := main.o node_registry.o cmd_exec.o json_utils.o json.o jnum.o
 
-CFLAGS := -O0 -g -ffunction-sections -fdata-sections
+CFLAGS := -O0 -g -ffunction-sections -fdata-sections -Wall -Wextra
 
 LDFLAGS := -lm
 
-all:$(target)
+.PHONY: all clean
 
-rlab:$(router-lab-obj)
-	$(CC) $^ $(LDFLAGS) -o $@
+all: $(TARGET)
 
-%.o:%.c
+$(TARGET): $(OBJS)
+	$(CC) $(OBJS) $(LDFLAGS) -o $@
+
+%.o: %.c
 	$(CC) -c $< $(CFLAGS) -o $@
 
 clean:
-	rm -f $(target) $(router-lab-obj)
+	rm -f $(TARGET) $(OBJS)
 
 
