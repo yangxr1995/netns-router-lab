@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RLab 网络拓扑编辑器</title>
+    <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Microsoft YaHei', sans-serif;
+            background: #1e1e1e;
+            color: #fff;
+            overflow: hidden;
+            height: 100vh;
+        }
+        #container { display: flex; height: 100vh; }
+        #toolbar {
+            width: 200px;
+            background: #2d2d30;
+            border-right: 1px solid #3e3e42;
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        #toolbar h3 {
+            font-size: 14px;
+            color: #ccc;
+            margin-bottom: 10px;
+        }
+        .tool-btn {
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: opacity 0.2s;
+        }
+        .tool-btn:hover { opacity: 0.8; }
+        .tool-btn.internet { background: #9b59b6; }
+        .tool-btn.router { background: #e74c3c; }
+        .tool-btn.switch { background: #3498db; }
+        .tool-btn.pc { background: #27ae60; }
+        .tool-btn.action {
+            background: #0e639c;
+            margin-top: auto;
+        }
+        .tool-btn.connect {
+            background: #f39c12;
+            margin-top: 10px;
+        }
+        .tool-btn.connect.active {
+            background: #e74c3c;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .node-connecting {
+            border-color: #f39c12 !important;
+            border-width: 4px !important;
+        }
+        .delete-btn {
+            width: 100%;
+            padding: 10px;
+            background: #c0392b;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-top: 20px;
+        }
+        .delete-btn:hover {
+            background: #e74c3c;
+        }
+        #cy {
+            flex: 1;
+            background: #1e1e1e;
+        }
+        #properties {
+            width: 300px;
+            background: #252526;
+            border-left: 1px solid #3e3e42;
+            padding: 15px;
+            overflow-y: auto;
+        }
+        #properties h3 {
+            font-size: 14px;
+            color: #ccc;
+            margin-bottom: 15px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            color: #ccc;
+            margin-bottom: 5px;
+        }
+        .form-group input[type="text"],
+        .form-group input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            background: #3c3c3c;
+            border: 1px solid #3e3e42;
+            color: #fff;
+            border-radius: 3px;
+            font-size: 13px;
+        }
+        .form-group input[type="checkbox"] {
+            width: auto;
+            margin-right: 5px;
+        }
+        .form-group.checkbox {
+            display: flex;
+            align-items: center;
+        }
+        .form-group.checkbox label {
+            margin-bottom: 0;
+        }
+        .help-text {
+            margin-top: 20px;
+            padding: 10px;
+            background: #1e1e1e;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #888;
+            line-height: 1.6;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="toolbar">
+            <h3>添加节点</h3>
+            <button class="tool-btn internet" onclick="addNode('internet')">Internet</button>
+            <button class="tool-btn router" onclick="addNode('router')">路由器</button>
+            <button class="tool-btn switch" onclick="addNode('switch')">交换机</button>
+            <button class="tool-btn pc" onclick="addNode('pc')">终端</button>
+
+            <div style="margin-top: 20px;">
+                <h3>连接节点</h3>
+                <button id="connectBtn" class="tool-btn connect" onclick="toggleConnectMode()">开始连接</button>
+                <div id="connectHint" style="font-size: 11px; color: #888; margin-top: 5px; display: none;">
+                    先点击源节点，再点击目标节点
+                </div>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <h3>操作</h3>
+                <button class="tool-btn action" onclick="exportJson()">导出配置</button>
+                <button class="tool-btn action" onclick="document.getElementById('fileInput').click()">导入配置</button>
+                <input type="file" id="fileInput" accept=".json" onchange="importJson(this)" style="display:none">
+                <button class="tool-btn action" onclick="clearAll()">清空画布</button>
+            </div>
+
+            <div class="help-text">
+                <strong>操作说明：</strong><br>
+                点击按钮添加节点<br>
+                拖拽节点移动位置<br>
+                点击节点编辑属性<br>
+                点击"开始连接"连接节点<br>
+                属性面板删除单个节点<br>
+                按Delete删除选中<br>
+            </div>
+        </div>
+
+        <div id="cy"></div>
+
+        <div id="properties">
+            <h3>属性面板</h3>
+            <div id="properties-content">
+                <div class="empty-state">选择一个节点编辑属性</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let cy = cytoscape({
+            container: document.getElementById('cy'),
+            style: [
+                {
+                    selector: 'node',
+                    style: {
+                        'label': 'data(label)',
+                        'text-valign': 'center',
+                        'text-halign': 'center',
+                        'font-size': '14px',
+                        'color': '#fff',
+                        'text-outline-color': '#000',
+                        'text-outline-width': 2,
+                        'width': 120,
+                        'height': 60,
+                        'border-width': 2,
+                        'border-color': '#fff'
+                    }
+                },
+                {
+                    selector: 'node[type="internet"]',
+                    style: {
+                        'background-color': '#9b59b6',
+                        'shape': 'ellipse'
+                    }
+                },
+                {
+                    selector: 'node[type="router"]',
+                    style: {
+                        'background-color': '#e74c3c',
+                        'shape': 'rectangle'
+                    }
+                },
+                {
+                    selector: 'node[type="switch"]',
+                    style: {
+                        'background-color': '#3498db',
+                        'shape': 'rectangle'
+                    }
+                },
+                {
+                    selector: 'node[type="pc"]',
+                    style: {
+                        'background-color': '#27ae60',
+                        'shape': 'ellipse'
+                    }
+                },
+                {
+                    selector: 'edge',
+                    style: {
+                        'width': 3,
+                        'line-color': '#666',
+                        'target-arrow-color': '#666',
+                        'target-arrow-shape': 'triangle',
+                        'curve-style': 'bezier'
+                    }
+                },
+                {
+                    selector: ':selected',
+                    style: {
+                        'border-width': 4,
+                        'border-color': '#ffd700'
+                    }
+                },
+                {
+                    selector: '.node-connecting',
+                    style: {
+                        'border-width': 4,
+                        'border-color': '#f39c12',
+                        'border-style': 'dashed'
+                    }
+                }
+            ],
+            layout: { name: 'grid' },
+            minZoom: 0.3,
+            maxZoom: 3,
+            wheelSensitivity: 0.3
+        });
+
+        let selectedNode = null;
+        let connectMode = false;
+        let sourceNode = null;
+
+        function getNextAvailableNumber(type) {
+            const nodes = cy.nodes().filter(function(n) {
+                return n.data('type') === type;
+            });
+
+            const usedNumbers = nodes.map(function(n) {
+                const name = n.data('name');
+                if (type === 'internet') return 0;
+                const match = name.match(/\d+$/);
+                return match ? parseInt(match[0]) : 0;
+            }).sort(function(a, b) { return a - b; });
+
+            let nextNum = 1;
+            for (let i = 0; i < usedNumbers.length; i++) {
+                if (usedNumbers[i] === nextNum) {
+                    nextNum++;
+                } else if (usedNumbers[i] > nextNum) {
+                    break;
+                }
+            }
+            return nextNum;
+        }
+
+        function addNode(type) {
+            const count = getNextAvailableNumber(type);
+            const id = type + '_' + count;
+
+            let name;
+            if (type === 'internet') {
+                name = 'Internet';
+            } else {
+                name = type + count;
+            }
+
+            cy.add({
+                group: 'nodes',
+                data: {
+                    id: id,
+                    type: type,
+                    label: name,
+                    name: name,
+                    br: type === 'router' || type === 'switch',
+                    vlan: false,
+                    vid: 0,
+                    lan: '',
+                    ifname: '',
+                    ifname_parent: '',
+                    forward: type !== 'pc',
+                    gid: -1,
+                    gw: false,
+                    disable: false
+                },
+                position: { x: 100 + Math.random() * 200, y: 100 + Math.random() * 200 }
+            });
+        }
+
+        cy.on('select', function(evt) {
+            if (evt.target.isNode && evt.target.isNode()) {
+                selectedNode = evt.target;
+                showProperties(selectedNode);
+            }
+        });
+
+        cy.on('unselect', function() {
+            selectedNode = null;
+            hideProperties();
+        });
+
+        cy.on('tap', function(evt) {
+            if (evt.target === cy) {
+                cy.elements().unselect();
+            }
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                const selected = cy.$(':selected');
+                if (selected.length > 0 && !connectMode) {
+                    cy.remove(selected);
+                    hideProperties();
+                }
+            }
+            if (e.key === 'Escape') {
+                exitConnectMode();
+            }
+        });
+
+        function toggleConnectMode() {
+            connectMode = !connectMode;
+            const btn = document.getElementById('connectBtn');
+            const hint = document.getElementById('connectHint');
+
+            if (connectMode) {
+                btn.textContent = '取消连接';
+                btn.classList.add('active');
+                hint.style.display = 'block';
+                cy.elements().unselect();
+            } else {
+                exitConnectMode();
+            }
+        }
+
+        function exitConnectMode() {
+            connectMode = false;
+            sourceNode = null;
+            const btn = document.getElementById('connectBtn');
+            const hint = document.getElementById('connectHint');
+            btn.textContent = '开始连接';
+            btn.classList.remove('active');
+            hint.style.display = 'none';
+
+            cy.nodes().removeClass('node-connecting');
+        }
+
+        cy.on('tap', 'node', function(evt) {
+            if (!connectMode) return;
+
+            const clickedNode = evt.target;
+
+            if (!sourceNode) {
+                sourceNode = clickedNode;
+                sourceNode.addClass('node-connecting');
+                document.getElementById('connectHint').textContent = '已选择源节点，点击目标节点';
+            } else if (sourceNode.id() !== clickedNode.id()) {
+                cy.add({
+                    group: 'edges',
+                    data: { source: sourceNode.id(), target: clickedNode.id() }
+                });
+
+                sourceNode.removeClass('node-connecting');
+                sourceNode = null;
+                document.getElementById('connectHint').textContent = '先点击源节点，再点击目标节点';
+            }
+        });
+
+        function showProperties(node) {
+            const data = node.data();
+            const isInternet = data.type === 'internet';
+
+            let html = '<div class="form-group"><label>节点类型</label><input type="text" value="' + data.type + '" disabled></div>';
+            html += '<div class="form-group"><label>名称</label><input type="text" value="' + (data.name || '') + '" onchange="updateNode(\'name\', this.value); updateNode(\'label\', this.value)"></div>';
+
+            if (!isInternet) {
+                html += '<div class="form-group checkbox"><input type="checkbox" ' + (data.br ? 'checked' : '') + ' onchange="updateNode(\'br\', this.checked)"><label>启用网桥</label></div>';
+                html += '<div class="form-group checkbox"><input type="checkbox" ' + (data.vlan ? 'checked' : '') + ' onchange="updateNode(\'vlan\', this.checked)"><label>启用VLAN</label></div>';
+                html += '<div class="form-group"><label>VLAN ID</label><input type="number" value="' + (data.vid || 0) + '" onchange="updateNode(\'vid\', parseInt(this.value)||0)"></div>';
+                html += '<div class="form-group"><label>LAN网段</label><input type="text" value="' + (data.lan || '') + '" placeholder="192.168.1.1" onchange="updateNode(\'lan\', this.value)"></div>';
+                html += '<div class="form-group"><label>接口名称</label><input type="text" value="' + (data.ifname || '') + '" onchange="updateNode(\'ifname\', this.value)"></div>';
+                html += '<div class="form-group"><label>父接口名称</label><input type="text" value="' + (data.ifname_parent || '') + '" onchange="updateNode(\'ifname_parent\', this.value)"></div>';
+                html += '<div class="form-group checkbox"><input type="checkbox" ' + (data.forward ? 'checked' : '') + ' onchange="updateNode(\'forward\', this.checked)"><label>IP转发</label></div>';
+                html += '<div class="form-group"><label>全局ID</label><input type="number" value="' + (data.gid || -1) + '" onchange="updateNode(\'gid\', parseInt(this.value)||-1)"></div>';
+                html += '<div class="form-group checkbox"><input type="checkbox" ' + (data.gw ? 'checked' : '') + ' onchange="updateNode(\'gw\', this.checked)"><label>作为网关</label></div>';
+                html += '<div class="form-group checkbox"><input type="checkbox" ' + (data.disable ? 'checked' : '') + ' onchange="updateNode(\'disable\', this.checked)"><label>禁用</label></div>';
+            }
+
+            html += '<button class="delete-btn" onclick="deleteSelectedNode()">删除节点</button>';
+
+            document.getElementById('properties-content').innerHTML = html;
+        }
+
+        function hideProperties() {
+            document.getElementById('properties-content').innerHTML = '<div class="empty-state">选择一个节点编辑属性</div>';
+        }
+
+        function updateNode(key, value) {
+            if (selectedNode) {
+                selectedNode.data(key, value);
+            }
+        }
+
+        function deleteSelectedNode() {
+            if (selectedNode) {
+                if (confirm('确定要删除节点 "' + selectedNode.data('name') + '" 吗？')) {
+                    cy.remove(selectedNode);
+                    selectedNode = null;
+                    hideProperties();
+                }
+            }
+        }
+
+        function buildTree(nodes, edges, rootId) {
+            const root = nodes.find(function(n) { return n.data.id === rootId; });
+            if (!root) return null;
+
+            const result = { name: root.data.name };
+            if (root.data.br) result.br = true;
+            if (root.data.vlan) result.vlan = true;
+            if (root.data.vid) result.vid = root.data.vid;
+            if (root.data.lan) result.lan = root.data.lan;
+            if (root.data.ifname) result.ifname = root.data.ifname;
+            if (root.data.ifname_parent) result.ifname_parent = root.data.ifname_parent;
+            if (!root.data.forward) result.forward = false;
+            if (root.data.gid >= 0) result.gid = root.data.gid;
+            if (root.data.gw) result.gw = true;
+            if (root.data.disable) result.disable = true;
+
+            const children = edges
+                .filter(function(e) { return e.data.source === rootId; })
+                .map(function(e) { return buildTree(nodes, edges, e.data.target); })
+                .filter(function(n) { return n !== null; });
+
+            if (children.length > 0) result.nodes = children;
+            return result;
+        }
+
+        function exportJson() {
+            const nodes = cy.nodes().map(function(n) { return { data: n.data() }; });
+            const edges = cy.edges().map(function(e) { return { data: e.data() }; });
+
+            const roots = nodes.filter(function(n) {
+                return !edges.some(function(e) { return e.data.target === n.data.id; });
+            });
+
+            if (roots.length === 0) {
+                alert('没有找到根节点');
+                return;
+            }
+
+            const topology = { nodes: roots.map(function(r) {
+                return buildTree(nodes, edges, r.data.id);
+            }).filter(function(n) { return n !== null; }) };
+
+            const blob = new Blob([JSON.stringify(topology, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'rlab-config.json';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importJson(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    loadTopology(data);
+                } catch (err) {
+                    alert('导入失败: ' + err.message);
+                }
+            };
+            reader.readAsText(file);
+            input.value = '';
+        }
+
+        function loadTopology(data) {
+            if (!data || !data.nodes) return;
+
+            cy.elements().remove();
+            let importIdCounter = 0;
+
+            function addTreeNode(nodeData, parent, x, y) {
+                const id = nodeData.name + '_' + (++importIdCounter);
+                let type = 'pc';
+                if (nodeData.name === 'Internet') type = 'internet';
+                else if (nodeData.br && !nodeData.vlan) type = 'router';
+                else if (nodeData.br && nodeData.vlan) type = 'switch';
+
+                cy.add({
+                    group: 'nodes',
+                    data: {
+                        id: id,
+                        type: type,
+                        label: nodeData.name,
+                        name: nodeData.name,
+                        br: nodeData.br || false,
+                        vlan: nodeData.vlan || false,
+                        vid: nodeData.vid || 0,
+                        lan: nodeData.lan || '',
+                        ifname: nodeData.ifname || '',
+                        ifname_parent: nodeData.ifname_parent || '',
+                        forward: nodeData.forward !== false,
+                        gid: nodeData.gid !== undefined ? nodeData.gid : -1,
+                        gw: nodeData.gw || false,
+                        disable: nodeData.disable || false
+                    },
+                    position: { x: x, y: y }
+                });
+
+                if (parent) {
+                    cy.add({ group: 'edges', data: { source: parent, target: id } });
+                }
+
+                if (nodeData.nodes) {
+                    const childWidth = 200;
+                    const totalWidth = nodeData.nodes.length * childWidth;
+                    const startX = x - totalWidth / 2 + childWidth / 2;
+
+                    nodeData.nodes.forEach(function(child, i) {
+                        addTreeNode(child, id, startX + i * childWidth, y + 150);
+                    });
+                }
+
+                return id;
+            }
+
+            const rootWidth = 200;
+            const totalWidth = data.nodes.length * rootWidth;
+            const startX = totalWidth / 2;
+
+            data.nodes.forEach(function(root, i) {
+                addTreeNode(root, null, startX + i * rootWidth - totalWidth / 2, 100);
+            });
+
+            cy.fit(cy.elements(), 50);
+        }
+
+        function clearAll() {
+            if (confirm('确定要清空所有节点吗？')) {
+                cy.elements().remove();
+                hideProperties();
+            }
+        }
+
+        addNode('internet');
+    </script>
+</body>
+</html>
