@@ -210,11 +210,17 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
     struct in_addr lan_addr = {0};
     int vxlan_id;
     gnode_t *gnode = NULL, *gnode_child = NULL;
+    bool disable = false;
 
     name = json_get_string(jroot, "name");
     br_on = json_get_bool(jroot, "br");
     vlan_on = json_get_bool(jroot, "vlan");
     vxlan_id = json_get_int(jroot, "vxlan");
+    disable = json_get_bool(jroot, "disable");
+
+    if (disable) {
+        return 0;
+    }
 
     if (br_on) {
         if ((lan_str = json_get_string(jroot, "lan")) != NULL)
@@ -264,6 +270,11 @@ _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset)
 
         if ((jobj = json_get_array_item(jnodes, i, NULL)) == NULL)
             break;
+
+        disable = json_get_bool(jobj, "disable");
+        if (disable) {
+            continue;
+        }
 
         gnode_child = get_node(jobj);
 
