@@ -6,6 +6,9 @@ set -e  # 启用错误退出
 DEFAULT_DELAY="10ms"
 DEFAULT_LOSS="0%"
 DEFAULT_BANDWIDTH=""  # 默认不限制带宽
+DEFAULT_JITTER=""      # 默认无抖动
+DEFAULT_JITTER_CORRELATION=""  # 默认无相关系数
+DEFAULT_JITTER_DISTRIBUTION="" # 默认无分布类型
 
 # 显示帮助信息
 show_help() {
@@ -23,6 +26,11 @@ show_help() {
     echo "  --dev <接口名称>         设置tc指令的目标设备(可选)"
     echo "                               会覆盖--direction的效果，"
     echo "                               以兼容--direction自动推导的接口不适用的场景"
+    echo "  --jitter <抖动值>        设置网络抖动（可选），例如 10ms"
+    echo "                               需要与--delay一起使用"
+    echo "  --jitter-correlation <系数> 设置抖动相关系数（0-100%）（可选）"
+    echo "  --jitter-distribution <类型> 设置抖动分布类型（可选）"
+    echo "                               可选值: normal, pareto, paretonormal"
     echo "  --help                   显示此帮助信息"
 }
 
@@ -31,6 +39,9 @@ delay=$DEFAULT_DELAY
 loss=$DEFAULT_LOSS
 bandwidth=$DEFAULT_BANDWIDTH
 qlen=""
+jitter=$DEFAULT_JITTER
+jitter_correlation=$DEFAULT_JITTER_CORRELATION
+jitter_distribution=$DEFAULT_JITTER_DISTRIBUTION
 reset_flag=0
 
 # 解析命令行参数
@@ -62,6 +73,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         --dev)
             targetDev="$2"
+            shift 2
+            ;;
+        --jitter)
+            jitter="$2"
+            shift 2
+            ;;
+        --jitter-correlation)
+            jitter_correlation="$2"
+            shift 2
+            ;;
+        --jitter-distribution)
+            jitter_distribution="$2"
             shift 2
             ;;
         --help)
@@ -126,6 +149,31 @@ validate_params() {
     # 验证qlen参数
     if [[ -n "$qlen" ]] && ! echo "$qlen" | grep -qE '^[0-9]+$'; then
         echo "错误: qlen参数必须是正整数"
+        exit 1
+    fi
+
+    # 验证抖动参数
+    if [[ -n "$jitter" ]] && ! echo "$jitter" | grep -qE '^[0-9]+(ms|s|us)$'; then
+        echo "错误: 抖动参数格式不正确。例如: 10ms, 100ms, 500us"
+        exit 1
+    fi
+
+    # 验证抖动相关系数
+    if [[ -n "$jitter_correlation" ]] && ! echo "$jitter_correlation" | grep -qE '^[0-9]+(\.?[0-9]+)?%$'; then
+        echo "错误: 抖动相关系数格式不正确。例如: 25%, 50%, 75%"
+        exit 1
+    fi
+
+    # 验证抖动分布类型
+    if [[ -n "$jitter_distribution" ]] && ! echo "$jitter_distribution" | grep -qE '^(normal|pareto|paretonormal)$'; then
+        echo "错误: 抖动分布类型必须是 normal, pareto 或 paretonormal"
+        exit 1
+    fi
+
+    # 检查抖动参数依赖关系
+    if [[ -n "$jitter" ]] && [[ "$delay" == "$DEFAULT_DELAY" ]]; then
+        echo "错误: 抖动参数需要与 --delay 参数一起使用"
+        echo "提示: 请同时指定 --delay 参数，例如: --delay 100ms --jitter 10ms"
         exit 1
     fi
 }
@@ -198,6 +246,15 @@ check_kernel_support
 
 echo "当前网络接口: $INTERFACE"
 echo "配置参数: 时延=$delay, 丢包率=$loss, 带宽=$bandwidth, 队列长度=$qlen"
+if [[ -n "$jitter" ]]; then
+    echo "抖动参数: 抖动=$jitter"
+    if [[ -n "$jitter_correlation" ]]; then
+        echo "              相关系数=$jitter_correlation"
+    fi
+    if [[ -n "$jitter_distribution" ]]; then
+        echo "              分布类型=$jitter_distribution"
+    fi
+fi
 
 # 清除现有规则
 echo "清除现有qdisc规则..."
@@ -205,9 +262,20 @@ tc qdisc del dev $INTERFACE root 2>/dev/null || true
 
 # 构建netem参数
 netem_args=""
-if [[ "$delay" != "$DEFAULT_DELAY" ]] || [[ "$loss" != "$DEFAULT_LOSS" ]]; then
-    if [[ "$delay" != "$DEFAULT_DELAY" ]]; then
-        netem_args="delay ${delay}"
+if [[ "$delay" != "$DEFAULT_DELAY" ]] || [[ "$loss" != "$DEFAULT_LOSS" ]] || [[ -n "$jitter" ]]; then
+    if [[ "$delay" != "$DEFAULT_DELAY" ]] || [[ -n "$jitter" ]]; then
+        # 构建延迟参数，包含抖动
+        if [[ -n "$jitter" ]]; then
+            netem_args="delay ${delay} ${jitter}"
+            if [[ -n "$jitter_correlation" ]]; then
+                netem_args="${netem_args} ${jitter_correlation}"
+            fi
+            if [[ -n "$jitter_distribution" ]]; then
+                netem_args="${netem_args} distribution ${jitter_distribution}"
+            fi
+        else
+            netem_args="delay ${delay}"
+        fi
     fi
     if [[ "$loss" != "$DEFAULT_LOSS" ]]; then
         if [[ -n "$netem_args" ]]; then
