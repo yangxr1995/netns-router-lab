@@ -123,7 +123,7 @@ chore: update Makefile flags
 ## JSON Configuration Schema
 
 Nodes support these fields:
-- `name` (string, required): Node identifier
+- `name` (string, required): Node identifier (same name = same node for multi-WAN)
 - `br` (bool): Enable bridge mode (switch functionality)
 - `vlan` (bool): Enable VLAN filtering (requires br: true)
 - `vid` (int): VLAN ID for child nodes
@@ -131,7 +131,7 @@ Nodes support these fields:
 - `forward` (bool): Enable IP forwarding (default: true)
 - `exec` (array): Commands to run after node creation
 - `nodes` (array): Child nodes
-- `gid` (int): Global ID for multi-WAN shared nodes
+- `gw` (bool): Act as gateway (for multi-WAN scenario)
 
 ## Debugging Tips
 

@@ -26,7 +26,6 @@
 #define JSON_KEY_VID            "vid"
 #define JSON_KEY_LAN            "lan"
 #define JSON_KEY_FORWARD        "forward"
-#define JSON_KEY_GID            "gid"
 #define JSON_KEY_GW             "gw"
 #define JSON_KEY_DISABLE        "disable"
 #define JSON_KEY_EXEC           "exec"

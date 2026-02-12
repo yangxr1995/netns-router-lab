@@ -22,7 +22,6 @@ function registerNodeTypes() {
             ifname: "",
             ifname_parent: "",
             forward: true,
-            gid: -1,
             gw: false,
             disable: false,
             exec: []
@@ -48,7 +47,6 @@ function registerNodeTypes() {
             ifname: "",
             ifname_parent: "",
             forward: true,
-            gid: -1,
             gw: false,
             disable: false,
             exec: []
@@ -74,7 +72,6 @@ function registerNodeTypes() {
             ifname: "",
             ifname_parent: "",
             forward: false,
-            gid: -1,
             gw: false,
             disable: false,
             exec: []
@@ -270,14 +267,6 @@ function updatePropertiesPanel(node) {
         </div>
 
         <div class="form-group">
-            <label>Global Node ID (gid)</label>
-            <input type="number" id="prop-gid" value="${p.gid >= 0 ? p.gid : ''}"
-                   placeholder="For multi-WAN scenarios"
-                   onchange="updateNodeProperty('gid', this.value ? parseInt(this.value) : -1)">
-            <div class="help-text">Used for multi-link shared nodes</div>
-        </div>
-
-        <div class="form-group">
             <label class="checkbox-label">
                 <input type="checkbox" id="prop-gw" ${p.gw ? 'checked' : ''}
                        onchange="updateNodeProperty('gw', this.checked)">
@@ -412,7 +401,6 @@ function graphToRlabJson() {
         if (p.ifname) result.ifname = p.ifname;
         if (p.ifname_parent) result.ifname_parent = p.ifname_parent;
         if (p.forward === false) result.forward = false;
-        if (p.gid >= 0) result.gid = p.gid;
         if (p.gw) result.gw = true;
         if (p.disable) result.disable = true;
         if (p.exec && p.exec.length > 0) {
@@ -501,7 +489,6 @@ function rlabJsonToGraph(json) {
         if (nodeData.ifname !== undefined) node.properties.ifname = nodeData.ifname;
         if (nodeData.ifname_parent !== undefined) node.properties.ifname_parent = nodeData.ifname_parent;
         if (nodeData.forward !== undefined) node.properties.forward = nodeData.forward;
-        if (nodeData.gid !== undefined) node.properties.gid = nodeData.gid;
         if (nodeData.gw !== undefined) node.properties.gw = nodeData.gw;
         if (nodeData.disable !== undefined) node.properties.disable = nodeData.disable;
         if (nodeData.exec !== undefined) node.properties.exec = nodeData.exec;

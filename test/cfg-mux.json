@@ -12,8 +12,7 @@
                         {
                             "name" : "pc",
                             "ifname" : "eth0",
-                            "forward" : false,
-                            "gid" : 1
+                            "forward" : false
                         }
                     ]
                 },
@@ -24,8 +23,8 @@
                     "ifname_parent" : "eth1",
                     "nodes" : [
                         {
+                            "name" : "pc",
                             "ifname" : "eth1",
-                            "gid" : 1,
                             "gw" : true
                         }
                     ]

@@ -8,6 +8,9 @@ typedef struct {
     char name[NODE_NAME_MAX_LEN];
     int rtable_idx;
     bool if_init;
+    bool used;
+    int link_count;
+    char uplink_ifname[IFNAME_MAX_LEN];
 } gnode_t;
 
 typedef struct {
@@ -25,8 +28,9 @@ typedef struct {
 typedef struct {
     gnode_t nodes[MAX_NODES];
     int current_rtable_idx;
+    int count;
 } node_registry_t;
 
 void node_registry_init(node_registry_t *reg);
-gnode_t *node_registry_get(node_registry_t *reg, int gid);
-gnode_t *node_registry_alloc(node_registry_t *reg, int gid);
+gnode_t *node_registry_get_by_name(node_registry_t *reg, const char *name);
+gnode_t *node_registry_alloc_by_name(node_registry_t *reg, const char *name);

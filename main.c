@@ -29,7 +29,7 @@ static inline struct in_addr alloc_ip(struct in_addr net_begin, char net_offset,
 static void netns_init(const char *parent_name, const char *name, struct in_addr gw,
                        const char *ifname_parent, const char *ifname_child,
                        const char *ifname_u_parent, const char *ifname_u_child,
-                       gnode_t *gnode, bool if_gw) {
+                       gnode_t *gnode, bool if_gw, char *actual_ifname_parent) {
     char nsname[NSNAME_BUF_SIZE];
     snprintf(nsname, sizeof(nsname), NS_PREFIX "%s", name);
 
@@ -40,7 +40,6 @@ static void netns_init(const char *parent_name, const char *name, struct in_addr
     }
 
     const char *child_iface = ifname_u_child ? ifname_u_child : ifname_child;
-    const char *parent_iface = ifname_u_parent ? ifname_u_parent : ifname_parent;
 
     if (ifname_u_child) {
         cmd_exec_in_netns(name, "ip link set dev %s down", ifname_child);
@@ -48,16 +47,23 @@ static void netns_init(const char *parent_name, const char *name, struct in_addr
         cmd_exec_in_netns(name, "ip link set dev %s up", ifname_u_child);
     }
 
-    if (ifname_u_parent && parent_name) {
-        cmd_exec_in_netns(parent_name, "ip link set dev %s down", ifname_parent);
-        cmd_exec_in_netns(parent_name, "ip link set dev %s name %s", ifname_parent, ifname_u_parent);
-        cmd_exec_in_netns(parent_name, "ip link set dev %s up", ifname_u_parent);
+    if (parent_name) {
+        if (ifname_u_parent) {
+            cmd_exec_in_netns(parent_name, "ip link set dev %s down", ifname_parent);
+            cmd_exec_in_netns(parent_name, "ip link set dev %s name %s", ifname_parent, ifname_u_parent);
+            cmd_exec_in_netns(parent_name, "ip link set dev %s up", ifname_u_parent);
+            snprintf(actual_ifname_parent, IFNAME_MAX_LEN, "%s", ifname_u_parent);
+        } else {
+            snprintf(actual_ifname_parent, IFNAME_MAX_LEN, "%s", ifname_parent);
+        }
+    } else {
+        snprintf(actual_ifname_parent, IFNAME_MAX_LEN, "%s", ifname_parent);
     }
 
     cmd_exec_in_netns(name, "ip link set dev lo up");
     cmd_exec_in_netns(name, "ip link set dev %s up", child_iface);
     if (parent_name) {
-        cmd_exec_in_netns(parent_name, "ip link set dev %s up", parent_iface);
+        cmd_exec_in_netns(parent_name, "ip link set dev %s up", actual_ifname_parent);
     }
 
     if (gnode && gnode->if_init) {
@@ -66,10 +72,11 @@ static void netns_init(const char *parent_name, const char *name, struct in_addr
                  inet_ntoa(gw), child_iface, gnode->rtable_idx);
         cmd_exec_in_netns_raw(name, cmd);
 
-        snprintf(cmd, sizeof(cmd), "ip rule add oif %s table %d", child_iface, gnode->rtable_idx);
+        snprintf(cmd, sizeof(cmd), "ip rule add oif %s table %d 2>/dev/null || true", child_iface, gnode->rtable_idx);
         cmd_exec_in_netns_raw(name, cmd);
 
         if (if_gw) {
+            // Add default route to main table for forwarding
             cmd_exec_in_netns(name, "ip route add default via %s dev %s onlink",
                               inet_ntoa(gw), child_iface);
         }
@@ -86,11 +93,8 @@ static void ip_addr_alloc(const char *name, struct in_addr net, const char *dev,
     cmd_exec_in_netns(name, "ip addr add %s/%d dev %s", inet_ntoa(addr), NETMASK_BITS, dev);
     cmd_exec_in_netns(name, "ip link set dev %s up", dev);
 
-    if (gnode && gnode->if_init) {
-        char cmd[CMD_TMP_BUF_SIZE];
-        snprintf(cmd, sizeof(cmd), "ip rule add from %s table %d", inet_ntoa(addr), gnode->rtable_idx);
-        cmd_exec_in_netns_raw(name, cmd);
-    }
+    // 注意：不要为共享节点添加 from 规则，因为路由表是共享的
+    // 如果需要使用策略路由，应该使用 oif 规则而不是 from 规则
 }
 
 static void setup_bridge(const char *name, struct in_addr net, struct in_addr lan_addr,
@@ -133,48 +137,122 @@ static void execute_commands(const char *name, json_object *exec_arr) {
     }
 }
 
+static void execute_commands_in_netns(const char *netns_name, json_object *exec_arr) {
+    if (!exec_arr) {
+        return;
+    }
+
+    char cmd[CMD_TMP_BUF_SIZE];
+    int exec_arr_len = json_get_array_size(exec_arr);
+    for (int i = 0; i < exec_arr_len; ++i) {
+        json_object *exec = json_get_array_item(exec_arr, i, NULL);
+        if (exec && exec->value.str_member) {
+            snprintf(cmd, sizeof(cmd), "ip netns exec %s %s", netns_name, exec->value.str_member);
+            cmd_exec("%s", cmd);
+        }
+    }
+}
+
 static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_offset);
 
 static int process_child_node(json_object *jobj, const char *parent_name,
-                              struct in_addr net_begin, int *pnet_offset,
-                              bool br_on, bool vlan_on, struct in_addr lan_addr,
-                              const char *name, int net_offset, int *ip_offset) {
+                               struct in_addr net_begin, int *pnet_offset,
+                               bool br_on, bool vlan_on, struct in_addr lan_addr,
+                               const char *name, int net_offset, int *ip_offset,
+                               gnode_t *gnode_parent, struct in_addr parent_uplink_gw) {
     char *node_name = NULL;
     char ifname_child[IFNAME_MAX_LEN];
     char ifname_parent[IFNAME_MAX_LEN];
     gnode_t *gnode_child = NULL;
     bool if_gw = false;
+    bool is_first_init = false;
 
-    int child_gid = json_get_int_from_object(jobj, JSON_KEY_GID);
-    if (child_gid >= 0) {
-        gnode_child = node_registry_get(&g_node_registry, child_gid);
+    node_name = json_get_string_value(jobj, JSON_KEY_NAME);
+    if (!node_name) {
+        fprintf(stderr, ERR_NODE_NAME_NULL);
+        return EXIT_CONFIG_ERROR;
     }
+
+    gnode_child = node_registry_get_by_name(&g_node_registry, node_name);
+
+    char *ifname_u_parent = json_get_string_value(jobj, JSON_KEY_IFNAME_PARENT);
+    char *ifname_u = json_get_string_value(jobj, JSON_KEY_IFNAME);
+
+    int link_id = 0;
+    if (gnode_child) {
+        link_id = gnode_child->link_count++;
+    }
+
+    // 使用简短的 veth 名称，避免超过 15 字符限制
+    // 父接口名称包含父节点首字母，子接口名称包含链路 ID 以确保唯一性
+    if (link_id == 0) {
+        if (parent_name) {
+            snprintf(ifname_parent, sizeof(ifname_parent), IFACE_PREFIX "%c%s-", parent_name[0], node_name);
+        } else {
+            snprintf(ifname_parent, sizeof(ifname_parent), IFACE_PREFIX "%s-", node_name);
+        }
+        snprintf(ifname_child, sizeof(ifname_child), IFACE_PREFIX "%s%d", node_name, link_id);
+    } else {
+        if (parent_name) {
+            snprintf(ifname_parent, sizeof(ifname_parent), IFACE_PREFIX "%c%s%d-", parent_name[0], node_name, link_id);
+        } else {
+            snprintf(ifname_parent, sizeof(ifname_parent), IFACE_PREFIX "%s%d-", node_name, link_id);
+        }
+        snprintf(ifname_child, sizeof(ifname_child), IFACE_PREFIX "%s%d", node_name, link_id);
+    }
+
+    char actual_ifname_parent[IFNAME_MAX_LEN];
+    const char *actual_ifname_child = ifname_u ? ifname_u : ifname_child;
+
+    struct in_addr gw_addr = (br_on && lan_addr.s_addr) ? lan_addr : alloc_ip(net_begin, net_offset, 1);
 
     if (gnode_child) {
         if (gnode_child->if_init) {
             if_gw = json_get_bool_from_object(jobj, JSON_KEY_GW);
             if (if_gw) {
-                cmd_exec_in_netns(gnode_child->name, "ip route del default");
+                cmd_exec_in_netns(node_name, "ip route add default via %s dev %s onlink 2>/dev/null || true",
+                                  inet_ntoa(gw_addr), actual_ifname_child);
+                // 为父节点添加默认路由，使用父节点连接祖父节点的 uplink 接口
+                // 从 gnode_parent 获取父节点的 uplink 接口名
+                char cmd[CMD_TMP_BUF_SIZE];
+                uint32_t host_ip = ntohl(gw_addr.s_addr);
+                uint32_t subnet = host_ip & 0xFFFFFF00;
+                struct in_addr subnet_addr;
+                subnet_addr.s_addr = htonl(subnet);
+                char subnet_str[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &subnet_addr, subnet_str, INET_ADDRSTRLEN);
+                // 在祖父节点（internet）中添加返回路由
+                char uplink_str[INET_ADDRSTRLEN];
+                inet_ntop(AF_INET, &parent_uplink_gw, uplink_str, INET_ADDRSTRLEN);
+                snprintf(cmd, sizeof(cmd), "ip netns exec internet ip route add %s/%d via %s 2>/dev/null || true",
+                         subnet_str, NETMASK_BITS, uplink_str);
+                cmd_exec("%s", cmd);
+                // 为父节点添加默认路由，使用父节点保存的 uplink 接口名
+                snprintf(cmd, sizeof(cmd), "ip route add default via %s dev %s 2>/dev/null || true",
+                         inet_ntoa(parent_uplink_gw), gnode_parent->uplink_ifname);
+                cmd_exec_in_netns_raw(parent_name, cmd);
             }
-            node_name = strdup(gnode_child->name);
         } else {
-            node_name = json_get_string_value(jobj, JSON_KEY_NAME);
-            if (!node_name) {
-                fprintf(stderr, ERR_NODE_NAME_NULL);
-                return EXIT_CONFIG_ERROR;
-            }
-            strncpy(gnode_child->name, node_name, NODE_NAME_MAX_LEN - 1);
-            gnode_child->name[NODE_NAME_MAX_LEN - 1] = '\0';
             cmd_exec("ip netns add " NS_PREFIX "%s", node_name);
             gnode_child->if_init = true;
+            // 保存 uplink 接口名（子节点命名空间中的接口）
+            snprintf(gnode_child->uplink_ifname, sizeof(gnode_child->uplink_ifname), "%s", ifname_child);
+            is_first_init = true;
         }
     } else {
-        node_name = json_get_string_value(jobj, JSON_KEY_NAME);
-        if (!node_name) {
-            fprintf(stderr, ERR_NODE_NAME_NULL);
+        gnode_child = node_registry_alloc_by_name(&g_node_registry, node_name);
+        if (!gnode_child) {
+            fprintf(stderr, "error: failed to allocate node registry for %s\n", node_name);
+            free(ifname_u_parent);
+            free(ifname_u);
+            free(node_name);
             return EXIT_CONFIG_ERROR;
         }
+        gnode_child->link_count = 0;
         cmd_exec("ip netns add " NS_PREFIX "%s", node_name);
+        gnode_child->if_init = true;
+        snprintf(gnode_child->uplink_ifname, sizeof(gnode_child->uplink_ifname), "%s", ifname_child);
+        is_first_init = true;
     }
 
     int vid = 0;
@@ -186,35 +264,54 @@ static int process_child_node(json_object *jobj, const char *parent_name,
         }
     }
 
-    char *ifname_u_parent = json_get_string_value(jobj, JSON_KEY_IFNAME_PARENT);
-    char *ifname_u = json_get_string_value(jobj, JSON_KEY_IFNAME);
-
-    snprintf(ifname_parent, sizeof(ifname_parent), IFACE_PREFIX "%s-", node_name);
-    snprintf(ifname_child, sizeof(ifname_child), IFACE_PREFIX "%s", node_name);
-
-    struct in_addr gw_addr = (br_on && lan_addr.s_addr) ? lan_addr : alloc_ip(net_begin, net_offset, 1);
     netns_init(parent_name, node_name, gw_addr, ifname_parent, ifname_child,
-               ifname_u_parent, ifname_u, gnode_child, if_gw);
+               ifname_u_parent, ifname_u, gnode_child, if_gw, actual_ifname_parent);
 
     if (br_on) {
-        cmd_exec_in_netns(name, "brctl addif " DEFAULT_BRIDGE_NAME " %s", ifname_parent);
-        if (lan_addr.s_addr) {
-            ip_addr_alloc(node_name, lan_addr, ifname_child, 0, (*ip_offset)++, gnode_child);
+        cmd_exec_in_netns(name, "brctl addif " DEFAULT_BRIDGE_NAME " %s", actual_ifname_parent);
+        if (is_first_init) {
+            if (lan_addr.s_addr) {
+                ip_addr_alloc(node_name, lan_addr, actual_ifname_child, 0, 1, gnode_child);
+            } else {
+                ip_addr_alloc(node_name, net_begin, actual_ifname_child, net_offset, ++(*ip_offset), gnode_child);
+            }
+            ++(*pnet_offset);
+            _node_create(jobj, net_begin, pnet_offset);
         } else {
-            ip_addr_alloc(node_name, net_begin, ifname_child, net_offset, ++(*ip_offset), gnode_child);
+            if (lan_addr.s_addr) {
+                ip_addr_alloc(node_name, lan_addr, actual_ifname_child, 0, 1, gnode_child);
+            } else {
+                ip_addr_alloc(node_name, net_begin, actual_ifname_child, net_offset, 1, gnode_child);
+            }
         }
-        ++(*pnet_offset);
-        _node_create(jobj, net_begin, pnet_offset);
 
         if (vlan_on) {
-            configure_vlan(name, ifname_parent, vid);
+            configure_vlan(name, actual_ifname_parent, vid);
+        }
+
+        // 当父节点是 internet 且子节点有 LAN 地址时，在 internet 命名空间添加返回路由
+        if (parent_name && strcmp(parent_name, "internet") == 0 && lan_addr.s_addr) {
+            uint32_t host_ip = ntohl(lan_addr.s_addr);
+            uint32_t subnet = host_ip & 0xFFFFFF00;
+            struct in_addr subnet_addr;
+            subnet_addr.s_addr = htonl(subnet);
+            char subnet_str[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &subnet_addr, subnet_str, INET_ADDRSTRLEN);
+
+            char gw_str[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &gw_addr, gw_str, INET_ADDRSTRLEN);
+
+            cmd_exec("ip netns exec internet ip route add %s/%d via %s 2>/dev/null || true",
+                     subnet_str, NETMASK_BITS, gw_str);
         }
     } else {
-        ip_addr_alloc(name, net_begin, ifname_parent, net_offset, 1, NULL);
-        ip_addr_alloc(node_name, net_begin, ifname_child, net_offset, 2, gnode_child);
-        ++(*pnet_offset);
-        _node_create(jobj, net_begin, pnet_offset);
-        *pnet_offset = net_offset + 1;
+        if (is_first_init) {
+            ip_addr_alloc(name, net_begin, actual_ifname_parent, net_offset, 1, NULL);
+            ip_addr_alloc(node_name, net_begin, actual_ifname_child, net_offset, 2, gnode_child);
+            ++(*pnet_offset);
+            _node_create(jobj, net_begin, pnet_offset);
+            *pnet_offset = net_offset + 1;
+        }
     }
 
     free(ifname_u_parent);
@@ -253,8 +350,15 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
     int arr_sz = json_get_array_size(jnodes);
     int ip_offset = 1;
 
+    char ifname_uplink[IFNAME_MAX_LEN] = {0};
+
     if (br_on) {
         setup_bridge(name, net_begin, lan_addr, net_offset, vlan_on);
+        // 为桥接路由器保存 uplink 接口名，用于添加 MASQUERADE 规则
+        gnode_t *gnode = node_registry_get_by_name(&g_node_registry, name);
+        if (gnode && gnode->uplink_ifname[0]) {
+            snprintf(ifname_uplink, sizeof(ifname_uplink), "%s", gnode->uplink_ifname);
+        }
     }
 
     bool forward = true;
@@ -273,8 +377,11 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
             continue;
         }
 
+        gnode_t *gnode_parent = node_registry_get_by_name(&g_node_registry, name);
+        // 父节点的uplink网关使用 (*pnet_offset - 1)，因为 _node_create 会增加 *pnet_offset
+        struct in_addr parent_uplink_gw = alloc_ip(net_begin, *pnet_offset - 1, 1);
         int ret = process_child_node(jobj, name, net_begin, pnet_offset, br_on, vlan_on,
-                                     lan_addr, name, net_offset, &ip_offset);
+                                     lan_addr, name, net_offset, &ip_offset, gnode_parent, parent_uplink_gw);
         if (ret != EXIT_SUCCESS_CODE) {
             free(name);
             return ret;
@@ -283,6 +390,11 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
         if (!br_on) {
             net_offset = *pnet_offset;
         }
+    }
+
+    // 为桥接路由器添加 MASQUERADE 规则，使子网可以访问外部网络
+    if (br_on && ifname_uplink[0]) {
+        cmd_exec_in_netns(name, "iptables -t nat -I POSTROUTING -o %s -j MASQUERADE 2>/dev/null || true", ifname_uplink);
     }
 
     json_object *exec_arr = json_get_object_item(jroot, JSON_KEY_EXEC, NULL);

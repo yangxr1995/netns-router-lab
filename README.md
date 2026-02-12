@@ -123,7 +123,6 @@ python3 -m http.server 8080
 | `ifname_parent` | string | 否 | 父节点接口重命名 |
 | `ifname` | string | 否 | 当前节点接口重命名 |
 | `forward` | bool | 否 | 启用 IP 转发（默认：true） |
-| `gid` | int | 否 | 全局节点 ID（用于多 WAN 共享节点） |
 | `gw` | bool | 否 | 作为网关（多 WAN 场景使用） |
 | `disable` | bool | 否 | 禁用该节点 |
 | `exec` | array | 否 | 节点创建后执行的命令数组 |
@@ -170,7 +169,7 @@ python3 -m http.server 8080
 
 #### 3. 多 WAN 配置
 
-使用 `gid` 创建共享节点，实现多链路聚合：
+使用相同的 `name` 创建共享节点，实现多链路聚合：
 
 ```json
 {
@@ -185,8 +184,7 @@ python3 -m http.server 8080
                 "nodes": [{
                     "name": "pc",
                     "ifname": "eth0",
-                    "forward": false,
-                    "gid": 1
+                    "forward": false
                 }]
             },
             {
@@ -195,8 +193,8 @@ python3 -m http.server 8080
                 "lan": "192.168.4.1",
                 "ifname_parent": "eth1",
                 "nodes": [{
+                    "name": "pc",
                     "ifname": "eth1",
-                    "gid": 1,
                     "gw": true
                 }]
             }

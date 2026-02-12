@@ -320,7 +320,6 @@
                     ifname: '',
                     ifname_parent: '',
                     forward: type !== 'pc',
-                    gid: -1,
                     gw: false,
                     disable: false
                 },
@@ -422,7 +421,6 @@
                 html += '<div class="form-group"><label>接口名称</label><input type="text" value="' + (data.ifname || '') + '" onchange="updateNode(\'ifname\', this.value)"></div>';
                 html += '<div class="form-group"><label>父接口名称</label><input type="text" value="' + (data.ifname_parent || '') + '" onchange="updateNode(\'ifname_parent\', this.value)"></div>';
                 html += '<div class="form-group checkbox"><input type="checkbox" ' + (data.forward ? 'checked' : '') + ' onchange="updateNode(\'forward\', this.checked)"><label>IP转发</label></div>';
-                html += '<div class="form-group"><label>全局ID</label><input type="number" value="' + (data.gid || -1) + '" onchange="updateNode(\'gid\', parseInt(this.value)||-1)"></div>';
                 html += '<div class="form-group checkbox"><input type="checkbox" ' + (data.gw ? 'checked' : '') + ' onchange="updateNode(\'gw\', this.checked)"><label>作为网关</label></div>';
                 html += '<div class="form-group checkbox"><input type="checkbox" ' + (data.disable ? 'checked' : '') + ' onchange="updateNode(\'disable\', this.checked)"><label>禁用</label></div>';
             }
@@ -464,7 +462,6 @@
             if (root.data.ifname) result.ifname = root.data.ifname;
             if (root.data.ifname_parent) result.ifname_parent = root.data.ifname_parent;
             if (!root.data.forward) result.forward = false;
-            if (root.data.gid >= 0) result.gid = root.data.gid;
             if (root.data.gw) result.gw = true;
             if (root.data.disable) result.disable = true;
 
@@ -547,7 +544,6 @@
                         ifname: nodeData.ifname || '',
                         ifname_parent: nodeData.ifname_parent || '',
                         forward: nodeData.forward !== false,
-                        gid: nodeData.gid !== undefined ? nodeData.gid : -1,
                         gw: nodeData.gw || false,
                         disable: nodeData.disable || false
                     },
