@@ -24,8 +24,7 @@
                     "nodes" : [
                         {
                             "name" : "pc",
-                            "ifname" : "eth1",
-                            "gw" : true
+                            "ifname" : "eth1"
                         }
                     ]
                 }

@@ -4,15 +4,11 @@
             "name" : "internet",
             "nodes" : [
                 {
-                    "name" : "router1",
+                    "name" : "router",
                     "br" : true,
-                    "exec" : [
-                        "tc-quick.sh --direction down  --delay 20ms --bandwidth 10Mbit --loss 0% ",
-                        "tc-quick.sh --direction up  --delay 20ms --bandwidth 10Mbit --loss 0% "
-                    ],
                     "nodes" : [
                         {
-                            "name" : "pc1-1"
+                            "name" : "pc"
                         }
                     ]
                 }
