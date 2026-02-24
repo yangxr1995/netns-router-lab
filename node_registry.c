@@ -35,7 +35,7 @@ gnode_t *node_registry_alloc_by_name(node_registry_t *reg, const char *name) {
 
     gnode_t *node = &reg->nodes[reg->count++];
     node->used = true;
-    node->rtable_idx = reg->current_rtable_idx++;
+    memset(node->rtable_indices, -1, sizeof(node->rtable_indices));
     node->link_count = 0;
     node->if_init = false;
     strncpy(node->name, name, NODE_NAME_MAX_LEN - 1);

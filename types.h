@@ -6,7 +6,7 @@
 
 typedef struct {
     char name[NODE_NAME_MAX_LEN];
-    int rtable_idx;
+    int rtable_indices[MAX_LINKS]; // 为每个链路存储唯一的路由表索引
     bool if_init;
     bool used;
     int link_count;

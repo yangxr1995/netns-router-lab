@@ -7,6 +7,7 @@
 #define NSNAME_BUF_SIZE         64
 
 #define MAX_NODES               128
+#define MAX_LINKS               16
 #define DEFAULT_NET_IP          "172.168.9.0"
 #define NETMASK_BITS            24
 #define INITIAL_RTABLE_IDX      1234
