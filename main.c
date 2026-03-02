@@ -359,8 +359,11 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
     char *name = json_get_string_value(jroot, JSON_KEY_NAME);
     bool br_on = json_get_bool_from_object(jroot, JSON_KEY_BR);
     bool vlan_on = json_get_bool_from_object(jroot, JSON_KEY_VLAN);
+    char *node_type = json_get_string_value(jroot, JSON_KEY_TYPE);
+    bool is_switch = (node_type && strcmp(node_type, "switch") == 0);
 
     if (json_get_bool_from_object(jroot, JSON_KEY_DISABLE)) {
+        free(node_type);
         free(name);
         return EXIT_SUCCESS_CODE;
     }
@@ -376,6 +379,7 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
 
     json_object *jnodes = json_get_object_item(jroot, JSON_KEY_NODES, NULL);
     if (!jnodes) {
+        free(node_type);
         free(name);
         return EXIT_SUCCESS_CODE;
     }
@@ -414,6 +418,7 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
         int ret = process_child_node(jobj, name, net_begin, pnet_offset, br_on, vlan_on,
                                      lan_addr, name, net_offset, &ip_offset, gnode_parent, parent_uplink_gw);
         if (ret != EXIT_SUCCESS_CODE) {
+            free(node_type);
             free(name);
             return ret;
         }
@@ -430,6 +435,7 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
     json_object *exec_arr = json_get_object_item(jroot, JSON_KEY_EXEC, NULL);
     execute_commands(name, exec_arr);
 
+    free(node_type);
     free(name);
     return EXIT_SUCCESS_CODE;
 }
