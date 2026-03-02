@@ -429,8 +429,7 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
             net_offset = *pnet_offset;
         }
     }
-
-    if (br_on && ifname_uplink[0]) {
+    if (br_on && ifname_uplink[0] && !is_switch) {
         cmd_exec_in_netns(name, "iptables -t nat -I POSTROUTING -o %s -j MASQUERADE 2>/dev/null || true", ifname_uplink);
     }
 
