@@ -21,6 +21,7 @@
 #define EXIT_CONFIG_ERROR       (-2)
 
 #define JSON_KEY_NAME           "name"
+#define JSON_KEY_TYPE           "type"
 #define JSON_KEY_NODES          "nodes"
 #define JSON_KEY_BR             "br"
 #define JSON_KEY_VLAN           "vlan"
