@@ -187,7 +187,7 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
 
 static int process_child_node(json_object *jobj, const char *parent_name,
                                struct in_addr net_begin, int *pnet_offset,
-                               bool br_on, bool vlan_on, struct in_addr lan_addr,
+                               bool br_on, bool vlan_on, bool is_switch, struct in_addr lan_addr,
                                const char *name, int net_offset, int *ip_offset,
                                gnode_t *gnode_parent, struct in_addr parent_uplink_gw) {
     char *node_name = NULL;
@@ -417,7 +417,7 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
 
         gnode_t *gnode_parent = node_registry_get_by_name(&g_node_registry, name);
         struct in_addr parent_uplink_gw = alloc_ip(net_begin, *pnet_offset - 1, 1);
-        int ret = process_child_node(jobj, name, net_begin, pnet_offset, br_on, vlan_on,
+        int ret = process_child_node(jobj, name, net_begin, pnet_offset, br_on, vlan_on, is_switch,
                                      lan_addr, name, net_offset, &ip_offset, gnode_parent, parent_uplink_gw);
         if (ret != EXIT_SUCCESS_CODE) {
             free(node_type);
