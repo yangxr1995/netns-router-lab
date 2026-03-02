@@ -210,6 +210,16 @@ static int process_child_node(json_object *jobj, const char *parent_name,
     char *child_type = json_get_string_value(jobj, JSON_KEY_TYPE);
     bool child_is_switch = (child_type && strcmp(child_type, "switch") == 0);
 
+    // 如果子节点是 switch，从子节点 JSON 读取 lan 配置
+    struct in_addr child_lan_addr = {0};
+    if (child_is_switch) {
+        char *lan_str = json_get_string_value(jobj, JSON_KEY_LAN);
+        if (lan_str) {
+            child_lan_addr.s_addr = inet_addr(lan_str);
+            free(lan_str);
+        }
+    }
+
     node_name = json_get_string_value(jobj, JSON_KEY_NAME);
     if (!node_name) {
         fprintf(stderr, ERR_NODE_NAME_NULL);
@@ -351,15 +361,11 @@ static int process_child_node(json_object *jobj, const char *parent_name,
             cmd_exec("ip netns exec internet ip route add %s/%d via %s 2>/dev/null || true",
                      subnet_str, NETMASK_BITS, gw_str);
         }
-    } else if (is_switch) {
-        // 父节点是 switch：子节点加入 switch 的 bridge
-        cmd_exec_in_netns(parent_name, "brctl addif " DEFAULT_BRIDGE_NAME " %s", actual_ifname_parent);
-        
-        // 子节点使用 switch 的 lan 网段
-        if (lan_addr.s_addr) {
-            ip_addr_alloc(node_name, lan_addr, actual_ifname_child, 0, ++(*ip_offset), gnode_child);
-        } else {
-            ip_addr_alloc(node_name, net_begin, actual_ifname_child, net_offset, ++(*ip_offset), gnode_child);
+    } else if (child_is_switch) {
+        // 子节点是 switch：父节点接口使用 switch 的 lan 网段
+        // switch 的 uplink 接口会在其自己的 _node_create 中加入 bridge
+        if (child_lan_addr.s_addr && parent_name) {
+            ip_addr_alloc(parent_name, child_lan_addr, actual_ifname_parent, 0, 1, NULL);
         }
     } else {
         if (is_first_init) {
