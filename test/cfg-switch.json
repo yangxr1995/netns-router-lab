@@ -1,0 +1,19 @@
+{
+    "nodes": [
+        {
+            "name": "internet",
+            "nodes": [
+                {
+                    "name": "sw1",
+                    "type": "switch",
+                    "lan": "192.168.100.1",
+                    "nodes": [
+                        {"name": "pc1"},
+                        {"name": "pc2"},
+                        {"name": "pc3"}
+                    ]
+                }
+            ]
+        }
+    ]
+}

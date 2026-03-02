@@ -143,8 +143,12 @@ static void setup_bridge(const char *name, struct in_addr net, struct in_addr la
 }
 
 static void configure_ip_forward(const char *name, bool forward) {
-    if (forward && name) {
-        cmd_exec_in_netns(name, "sysctl -w net.ipv4.ip_forward=1");
+    if (name) {
+        if (forward) {
+            cmd_exec_in_netns(name, "sysctl -w net.ipv4.ip_forward=1");
+        } else {
+            cmd_exec_in_netns(name, "sysctl -w net.ipv4.ip_forward=0");
+        }
     }
 }
 
@@ -369,7 +373,7 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
     }
 
     struct in_addr lan_addr = {0};
-    if (br_on) {
+    if (br_on || is_switch) {
         char *lan_str = json_get_string_value(jroot, JSON_KEY_LAN);
         if (lan_str) {
             lan_addr.s_addr = inet_addr(lan_str);
@@ -401,7 +405,9 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
     if (json_has_key(jroot, JSON_KEY_FORWARD)) {
         forward = json_get_bool_from_object(jroot, JSON_KEY_FORWARD);
     }
-    if (!is_switch) {
+    if (is_switch) {
+        configure_ip_forward(name, false);
+    } else {
         configure_ip_forward(name, forward);
     }
 
