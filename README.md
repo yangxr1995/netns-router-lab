@@ -123,6 +123,8 @@ python3 -m http.server 8080
 | `ifname_parent` | string | 否 | 父节点接口重命名 |
 | `ifname` | string | 否 | 当前节点接口重命名 |
 | `forward` | bool | 否 | 启用 IP 转发（默认：true） |
+| `type` | string | 否 | 节点类型：router（默认）或 switch |
+| `gw` | bool | 否 | 作为网关（多 WAN 场景使用） |
 | `gw` | bool | 否 | 作为网关（多 WAN 场景使用） |
 | `disable` | bool | 否 | 禁用该节点 |
 | `exec` | array | 否 | 节点创建后执行的命令数组 |
@@ -167,6 +169,31 @@ python3 -m http.server 8080
 }
 ```
 
+#### 3. 交换机节点
+
+`type: switch` 创建纯二层交换机，所有接口加入网桥，无路由功能：
+
+```json
+{
+    "nodes": [{
+        "name": "internet",
+        "nodes": [{
+            "name": "sw1",
+            "type": "switch",
+            "lan": "192.168.100.1",
+            "nodes": [
+                {"name": "pc1"},
+                {"name": "pc2"},
+                {"name": "pc3"}
+            ]
+        }]
+    }]
+}
+```
+
+所有连接到 sw1 的设备在同一二层网络，可互相访问。`lan` 字段指定网桥 IP 用于调试。
+
+#### 4. 多 WAN 配置
 #### 3. 多 WAN 配置
 
 使用相同的 `name` 创建共享节点，实现多链路聚合：
@@ -203,7 +230,7 @@ python3 -m http.server 8080
 }
 ```
 
-#### 4. 带流量控制的网络
+#### 5. 带流量控制的网络
 
 在 `exec` 中调用 `tc-quick.sh` 配置流量控制：
 
