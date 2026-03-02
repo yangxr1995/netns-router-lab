@@ -33,7 +33,8 @@ static int node_registry_get_next_rtable_index(node_registry_t *reg) {
 static void netns_init(const char *parent_name, const char *name, struct in_addr gw,
                        const char *ifname_parent, const char *ifname_child,
                        const char *ifname_u_parent, const char *ifname_u_child,
-                       gnode_t *gnode, bool if_gw, char *actual_ifname_parent, int link_id) {
+                       gnode_t *gnode, bool if_gw, char *actual_ifname_parent, int link_id,
+                       bool skip_routing) {
     char nsname[NSNAME_BUF_SIZE];
     snprintf(nsname, sizeof(nsname), NS_PREFIX "%s", name);
 
@@ -70,6 +71,10 @@ static void netns_init(const char *parent_name, const char *name, struct in_addr
         cmd_exec_in_netns(parent_name, "ip link set dev %s up", actual_ifname_parent);
     }
 
+    // 如果跳过路由（switch 或其子节点），直接返回
+    if (skip_routing) {
+        return;
+    }
     int rtable_idx;
     if (gnode) {
         // 为每个新链路分配新的路由表索引
@@ -201,6 +206,10 @@ static int process_child_node(json_object *jobj, const char *parent_name,
     bool if_gw = false;
     bool is_first_init = false;
 
+    // 从子节点 JSON 读取 type 字段，检测子节点是否是 switch
+    char *child_type = json_get_string_value(jobj, JSON_KEY_TYPE);
+    bool child_is_switch = (child_type && strcmp(child_type, "switch") == 0);
+
     node_name = json_get_string_value(jobj, JSON_KEY_NAME);
     if (!node_name) {
         fprintf(stderr, ERR_NODE_NAME_NULL);
@@ -303,7 +312,8 @@ static int process_child_node(json_object *jobj, const char *parent_name,
     }
 
     netns_init(parent_name, node_name, gw_addr, ifname_parent, ifname_child,
-               ifname_u_parent, ifname_u, gnode_child, if_gw, actual_ifname_parent, link_id);
+               ifname_u_parent, ifname_u, gnode_child, if_gw, actual_ifname_parent, link_id,
+               is_switch || child_is_switch);  // 如果父节点或子节点是 switch，跳过路由规则
 
     if (br_on || is_switch) {
         cmd_exec_in_netns(name, "brctl addif " DEFAULT_BRIDGE_NAME " %s", actual_ifname_parent);
@@ -341,6 +351,16 @@ static int process_child_node(json_object *jobj, const char *parent_name,
             cmd_exec("ip netns exec internet ip route add %s/%d via %s 2>/dev/null || true",
                      subnet_str, NETMASK_BITS, gw_str);
         }
+    } else if (is_switch) {
+        // 父节点是 switch：子节点加入 switch 的 bridge
+        cmd_exec_in_netns(parent_name, "brctl addif " DEFAULT_BRIDGE_NAME " %s", actual_ifname_parent);
+        
+        // 子节点使用 switch 的 lan 网段
+        if (lan_addr.s_addr) {
+            ip_addr_alloc(node_name, lan_addr, actual_ifname_child, 0, ++(*ip_offset), gnode_child);
+        } else {
+            ip_addr_alloc(node_name, net_begin, actual_ifname_child, net_offset, ++(*ip_offset), gnode_child);
+        }
     } else {
         if (is_first_init) {
             ip_addr_alloc(name, net_begin, actual_ifname_parent, net_offset, 1, NULL);
@@ -353,6 +373,7 @@ static int process_child_node(json_object *jobj, const char *parent_name,
 
     free(ifname_u_parent);
     free(ifname_u);
+    free(child_type);
     free(node_name);
 
     return EXIT_SUCCESS_CODE;
