@@ -389,7 +389,7 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
 
     char ifname_uplink[IFNAME_MAX_LEN] = {0};
 
-    if (br_on) {
+    if (br_on || is_switch) {
         setup_bridge(name, net_begin, lan_addr, net_offset, vlan_on);
         gnode_t *gnode = node_registry_get_by_name(&g_node_registry, name);
         if (gnode && gnode->uplink_ifname[0]) {
@@ -401,7 +401,9 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
     if (json_has_key(jroot, JSON_KEY_FORWARD)) {
         forward = json_get_bool_from_object(jroot, JSON_KEY_FORWARD);
     }
-    configure_ip_forward(name, forward);
+    if (!is_switch) {
+        configure_ip_forward(name, forward);
+    }
 
     for (int i = 0; i < arr_sz; ++i) {
         json_object *jobj = json_get_array_item(jnodes, i, NULL);
