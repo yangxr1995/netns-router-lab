@@ -301,7 +301,7 @@ static int process_child_node(json_object *jobj, const char *parent_name,
     netns_init(parent_name, node_name, gw_addr, ifname_parent, ifname_child,
                ifname_u_parent, ifname_u, gnode_child, if_gw, actual_ifname_parent, link_id);
 
-    if (br_on) {
+    if (br_on || is_switch) {
         cmd_exec_in_netns(name, "brctl addif " DEFAULT_BRIDGE_NAME " %s", actual_ifname_parent);
         if (is_first_init) {
             if (lan_addr.s_addr) {
@@ -319,7 +319,7 @@ static int process_child_node(json_object *jobj, const char *parent_name,
             }
         }
 
-        if (vlan_on) {
+        if (vlan_on && !is_switch) {
             configure_vlan(name, actual_ifname_parent, vid);
         }
 
