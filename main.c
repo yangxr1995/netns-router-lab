@@ -309,7 +309,7 @@ static int process_child_node(json_object *jobj, const char *parent_name,
         cmd_exec_in_netns(name, "brctl addif " DEFAULT_BRIDGE_NAME " %s", actual_ifname_parent);
         if (is_first_init) {
             if (lan_addr.s_addr) {
-                ip_addr_alloc(node_name, lan_addr, actual_ifname_child, 0, 1, gnode_child);
+                ip_addr_alloc(node_name, lan_addr, actual_ifname_child, 0, ++(*ip_offset), gnode_child);
             } else {
                 ip_addr_alloc(node_name, net_begin, actual_ifname_child, net_offset, ++(*ip_offset), gnode_child);
             }
@@ -317,7 +317,7 @@ static int process_child_node(json_object *jobj, const char *parent_name,
             _node_create(jobj, net_begin, pnet_offset);
         } else {
             if (lan_addr.s_addr) {
-                ip_addr_alloc(node_name, lan_addr, actual_ifname_child, 0, 1, gnode_child);
+                ip_addr_alloc(node_name, lan_addr, actual_ifname_child, 0, ++(*ip_offset), gnode_child);
             } else {
                 ip_addr_alloc(node_name, net_begin, actual_ifname_child, net_offset, 1, gnode_child);
             }
