@@ -17,7 +17,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { 
-  Globe, 
   Router, 
   Network, 
   Monitor, 
@@ -42,7 +41,6 @@ interface ToolbarProps {
 }
 
 const nodeTypes: { type: NodeType; label: string; icon: React.ElementType; color: string }[] = [
-  { type: 'internet', label: 'Internet', icon: Globe, color: 'text-purple-400' },
   { type: 'router', label: '路由器', icon: Router, color: 'text-red-400' },
   { type: 'switch', label: '交换机', icon: Network, color: 'text-blue-400' },
   { type: 'pc', label: '终端设备', icon: Monitor, color: 'text-green-400' },

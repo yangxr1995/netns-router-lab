@@ -128,7 +128,15 @@ export default function ImportDialog({
                 setJsonText(e.target.value);
                 setError('');
               }}
-              placeholder={`{\n  "nodes": [\n    {\n      "name": "internet",\n      "nodes": [...]\n    }\n  ]\n}`}
+              placeholder={`{
+  "nodes": [
+    {
+      "name": "router",
+      "br": true,
+      "nodes": [...]
+    }
+  ]
+}`}
               className="min-h-[200px] font-mono text-xs"
             />
           </TabsContent>

@@ -7,7 +7,8 @@ export const exampleConfigs: ExampleConfig[] = [
     data: {
       nodes: [
         {
-          name: 'internet',
+          name: 'router',
+          br: true,
           nodes: [
             {
               name: 'router',
@@ -29,7 +30,8 @@ export const exampleConfigs: ExampleConfig[] = [
     data: {
       nodes: [
         {
-          name: 'internet',
+          name: 'router',
+          br: true,
           nodes: [
             {
               name: 'router1',
@@ -61,7 +63,8 @@ export const exampleConfigs: ExampleConfig[] = [
     data: {
       nodes: [
         {
-          name: 'internet',
+          name: 'router',
+          br: true,
           nodes: [
             {
               name: 'router1',
@@ -100,7 +103,8 @@ export const exampleConfigs: ExampleConfig[] = [
     data: {
       nodes: [
         {
-          name: 'internet',
+          name: 'router',
+          br: true,
           nodes: [
             {
               name: 'router1',
@@ -126,7 +130,8 @@ export const exampleConfigs: ExampleConfig[] = [
     data: {
       nodes: [
         {
-          name: 'internet',
+          name: 'router',
+          br: true,
           nodes: [
             {
               name: 'router1',

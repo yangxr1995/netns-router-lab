@@ -1,5 +1,6 @@
 // Node types in the network topology
-export type NodeType = 'internet' | 'router' | 'switch' | 'pc';
+export type NodeType = 'router' | 'switch' | 'pc';
+
 
 // Network node properties
 export interface NodeProperties {
@@ -33,6 +34,7 @@ export interface EdgeData {
 // RLab JSON node structure
 export interface RLabNode {
   name: string;
+  type?: string;  // 节点类型：router, switch
   br?: boolean;
   vlan?: boolean;
   vid?: number;

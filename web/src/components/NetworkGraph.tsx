@@ -9,14 +9,12 @@ interface NetworkGraphProps {
 }
 
 const nodeColors: Record<NodeType, string> = {
-  internet: '#a371f7',
   router: '#f85149',
   switch: '#58a6ff',
   pc: '#3fb950'
 };
 
 const nodeShapes: Record<NodeType, cytoscape.Css.NodeShape> = {
-  internet: 'ellipse',
   router: 'round-rectangle',
   switch: 'round-rectangle',
   pc: 'ellipse'
@@ -56,15 +54,7 @@ export default function NetworkGraph({
             'transition-property': 'background-color, border-color, border-width, width, height'
           }
         },
-        {
-          selector: 'node[type="internet"]',
-          style: {
-            'background-color': nodeColors.internet,
-            'shape': nodeShapes.internet,
-            'width': 120,
-            'height': 60
-          }
-        },
+
         {
           selector: 'node[type="router"]',
           style: {
@@ -218,27 +208,6 @@ export default function NetworkGraph({
       }
     });
 
-    // Add default internet node
-    cy.add({
-      group: 'nodes',
-      data: {
-        id: 'internet_default',
-        type: 'internet',
-        label: 'internet',
-        name: 'internet',
-        br: false,
-        vlan: false,
-        vid: 0,
-        lan: '',
-        ifname: '',
-        ifname_parent: '',
-        forward: false,
-        gw: false,
-        disable: false,
-        exec: []
-      },
-      position: { x: 200, y: 200 }
-    });
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);

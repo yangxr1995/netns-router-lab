@@ -11,9 +11,12 @@ interface ValidationResult {
  * Fixed: Properly handle router vs switch detection
  */
 export function determineNodeType(nodeData: RLabNode): NodeType {
-  if (nodeData.name === 'internet') {
-    return 'internet';
+  // First check for explicit type field
+  if (nodeData.type === 'switch') {
+    return 'switch';
   }
+  
+
   
   // Router: has br=true AND (has VLAN OR has child nodes)
   // Switch: has br=true AND no VLAN AND no child nodes (pure bridge)
@@ -42,6 +45,13 @@ export function buildTreeJson(
 
   const data = root.data as NodeData;
   const result: RLabNode = { name: data.name };
+
+  // Add type for switch nodes
+  if (data.type === 'switch') {
+    result.type = 'switch';
+  }
+
+  // Add properties if they differ from defaults
 
   // Add properties if they differ from defaults
   if (data.br) result.br = true;
@@ -180,25 +190,14 @@ export function validateTopology(cy: cytoscape.Core): ValidationResult[] {
   const nodes = cy.nodes();
   const edges = cy.edges();
 
-  // Check for internet node
-  const internetNodes = nodes.filter(n => n.data('type') === 'internet');
-  if (internetNodes.length === 0) {
-    results.push({
-      type: 'error',
-      message: '缺少 Internet 根节点'
-    });
-  } else if (internetNodes.length > 1) {
-    results.push({
-      type: 'error',
-      message: `存在 ${internetNodes.length} 个 Internet 节点，只能有一个`
-    });
-  }
 
+
+  // Check for orphaned nodes
   // Check for orphaned nodes
   const orphanedNodes = nodes.filter(n => {
     const hasIncoming = edges.some(e => e.data('target') === n.id());
     const hasOutgoing = edges.some(e => e.data('source') === n.id());
-    return !hasIncoming && !hasOutgoing && n.data('type') !== 'internet';
+    return !hasIncoming && !hasOutgoing;
   });
   
   if (orphanedNodes.length > 0) {
@@ -301,7 +300,7 @@ export function getNextAvailableNumber(
   const usedNumbers = nodes
     .map(n => {
       const name = n.data('name') || '';
-      if (type === 'internet') return 0;
+
       const match = name.match(/\d+$/);
       return match ? parseInt(match[0]) : 0;
     })

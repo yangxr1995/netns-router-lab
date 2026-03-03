@@ -81,25 +81,12 @@ function App() {
     
     const cy = cyRef.current;
     
-    // Check if internet node already exists
-    if (type === 'internet') {
-      const existingInternet = cy.nodes().filter(n => n.data('type') === 'internet');
-      if (existingInternet.length > 0) {
-        toast.info('Internet 节点已存在');
-        existingInternet[0].select();
-        return;
-      }
-    }
-    
     const count = getNextAvailableNumber(cy, type);
+    
+
     const id = `${type}_${Date.now()}_${count}`;
     
-    let name: string;
-    if (type === 'internet') {
-      name = 'internet';
-    } else {
-      name = `${type}${count}`;
-    }
+    const name = `${type}${count}`;
 
     const nodeData: NodeData = {
       id,
@@ -220,9 +207,6 @@ function App() {
       cyRef.current.elements().remove();
       setSelectedNode(null);
       setSelectedEdge(null);
-      
-      // Re-add internet node
-      handleAddNode('internet');
       
       toast.success('画布已重置');
     }
