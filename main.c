@@ -209,6 +209,8 @@ static int process_child_node(json_object *jobj, const char *parent_name,
     // 从子节点 JSON 读取 type 字段，检测子节点是否是 switch
     char *child_type = json_get_string_value(jobj, JSON_KEY_TYPE);
     bool child_is_switch = (child_type && strcmp(child_type, "switch") == 0);
+    bool child_br_on = json_get_bool_from_object(jobj, JSON_KEY_BR);
+    bool child_vlan_on = json_get_bool_from_object(jobj, JSON_KEY_VLAN);
 
     // 如果子节点是 switch，从子节点 JSON 读取 lan 配置
     struct in_addr child_lan_addr = {0};
@@ -327,6 +329,9 @@ static int process_child_node(json_object *jobj, const char *parent_name,
 
     if (br_on || is_switch) {
         cmd_exec_in_netns(name, "brctl addif " DEFAULT_BRIDGE_NAME " %s", actual_ifname_parent);
+    }
+    
+    if (br_on || is_switch || child_br_on || child_is_switch) {
         if (is_first_init) {
             if (lan_addr.s_addr) {
                 ip_addr_alloc(node_name, lan_addr, actual_ifname_child, 0, ++(*ip_offset), gnode_child);
@@ -425,6 +430,10 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
         gnode_t *gnode = node_registry_get_by_name(&g_node_registry, name);
         if (gnode && gnode->uplink_ifname[0]) {
             snprintf(ifname_uplink, sizeof(ifname_uplink), "%s", gnode->uplink_ifname);
+            // 对于 switch，uplink 接口需要加入 bridge
+            if (is_switch) {
+                cmd_exec_in_netns(name, "brctl addif " DEFAULT_BRIDGE_NAME " %s", ifname_uplink);
+            }
         }
     }
 
