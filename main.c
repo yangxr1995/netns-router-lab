@@ -331,7 +331,19 @@ static int process_child_node(json_object *jobj, const char *parent_name,
         cmd_exec_in_netns(name, "brctl addif " DEFAULT_BRIDGE_NAME " %s", actual_ifname_parent);
     }
     
-    if (br_on || is_switch || child_br_on || child_is_switch) {
+    // 先处理子节点是 switch 的情况
+    if (child_is_switch) {
+        // 子节点是 switch：父节点接口使用 switch 的 lan 网段
+        if (child_lan_addr.s_addr && parent_name) {
+            ip_addr_alloc(parent_name, child_lan_addr, actual_ifname_parent, 0, 1, NULL);
+        }
+        // 递归创建 switch 节点的子节点
+        if (is_first_init) {
+            ++(*pnet_offset);
+            _node_create(jobj, net_begin, pnet_offset);
+        }
+    } else if (br_on || is_switch) {
+        // 路由器或带有 bridge 的节点
         if (is_first_init) {
             if (lan_addr.s_addr) {
                 ip_addr_alloc(node_name, lan_addr, actual_ifname_child, 0, ++(*ip_offset), gnode_child);
@@ -366,13 +378,8 @@ static int process_child_node(json_object *jobj, const char *parent_name,
             cmd_exec("ip netns exec internet ip route add %s/%d via %s 2>/dev/null || true",
                      subnet_str, NETMASK_BITS, gw_str);
         }
-    } else if (child_is_switch) {
-        // 子节点是 switch：父节点接口使用 switch 的 lan 网段
-        // switch 的 uplink 接口会在其自己的 _node_create 中加入 bridge
-        if (child_lan_addr.s_addr && parent_name) {
-            ip_addr_alloc(parent_name, child_lan_addr, actual_ifname_parent, 0, 1, NULL);
-        }
     } else {
+        // 普通节点
         if (is_first_init) {
             ip_addr_alloc(name, net_begin, actual_ifname_parent, net_offset, 1, NULL);
             ip_addr_alloc(node_name, net_begin, actual_ifname_child, net_offset, 2, gnode_child);
