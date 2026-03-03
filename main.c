@@ -440,6 +440,24 @@ static int _node_create(json_object *jroot, struct in_addr net_begin, int *pnet_
             // 对于 switch，uplink 接口需要加入 bridge
             if (is_switch) {
                 cmd_exec_in_netns(name, "brctl addif " DEFAULT_BRIDGE_NAME " %s", ifname_uplink);
+            } else if (br_on) {
+                // 对于 router with bridge，在策略路由表中添加 LAN 网段路由
+                int rtable_idx = gnode->rtable_indices[0];
+                if (rtable_idx > 0) {
+                    // 计算 LAN 网段
+                    struct in_addr br_subnet;
+                    if (lan_addr.s_addr) {
+                        uint32_t host_ip = ntohl(lan_addr.s_addr);
+                        uint32_t subnet = host_ip & 0xFFFFFF00;
+                        br_subnet.s_addr = htonl(subnet);
+                    } else {
+                        br_subnet = alloc_ip(net_begin, net_offset, 0);
+                    }
+                    char subnet_str[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &br_subnet, subnet_str, INET_ADDRSTRLEN);
+                    cmd_exec_in_netns(name, "ip route add %s/%d dev br0 table %d 2>/dev/null || true",
+                                     subnet_str, NETMASK_BITS, rtable_idx);
+                }
             }
         }
     }
