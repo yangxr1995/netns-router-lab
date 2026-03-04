@@ -1,2 +1,4 @@
 *.o
 rlab
+web/node_modules
+docs/plans
